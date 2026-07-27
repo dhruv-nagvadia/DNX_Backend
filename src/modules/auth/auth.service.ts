@@ -37,7 +37,10 @@ async function register(input: RegisterInput): Promise<AuthResult> {
   const tokens = signTokens({ sub: user.id, role: user.role });
   return {
     ...tokens,
-    user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
   };
 }
 
@@ -51,7 +54,10 @@ async function login(input: LoginInput): Promise<AuthResult> {
   const tokens = signTokens({ sub: user.id, role: user.role });
   return {
     ...tokens,
-    user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
   };
 }
 

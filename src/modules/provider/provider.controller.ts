@@ -18,13 +18,25 @@ const getById = asyncHandler(async (req: Request, res: Response) => {
 const create = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const provider = await providerService.create(req.user.sub, req.body);
-  sendSuccess(res, provider, 'Provider profile created', 201);
+  sendSuccess(res, provider, 'Business created', 201);
 });
 
-const getMine = asyncHandler(async (req: Request, res: Response) => {
+const listMine = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
-  const provider = await providerService.getMine(req.user.sub);
+  const businesses = await providerService.listMine(req.user.sub);
+  sendSuccess(res, businesses);
+});
+
+const getMineOne = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const provider = await providerService.getMineById(req.user.sub, req.params.id);
   sendSuccess(res, provider);
+});
+
+const update = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const provider = await providerService.update(req.user.sub, req.params.id, req.body);
+  sendSuccess(res, provider, 'Business updated');
 });
 
 const uploadImages = asyncHandler(async (req: Request, res: Response) => {
@@ -32,12 +44,19 @@ const uploadImages = asyncHandler(async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[]) ?? [];
   if (files.length === 0) throw ApiError.badRequest('No images uploaded');
 
-  // Build absolute URLs so web/mobile clients can load them directly.
   const origin = `${req.protocol}://${req.get('host')}`;
   const urls = files.map((f) => `${origin}/uploads/${f.filename}`);
 
-  const provider = await providerService.addImages(req.user.sub, urls);
+  const provider = await providerService.addImages(req.user.sub, req.params.id, urls);
   sendSuccess(res, provider, 'Images uploaded');
 });
 
-export const providerController = { list, getById, create, getMine, uploadImages };
+export const providerController = {
+  list,
+  getById,
+  create,
+  listMine,
+  getMineOne,
+  update,
+  uploadImages,
+};

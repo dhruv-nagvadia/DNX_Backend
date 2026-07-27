@@ -19,3 +19,5 @@ export interface ListProviderQuery {
   page: number;
   limit: number;
 }
+
+export type UpdateProviderInput = Partial<CreateProviderInput>;

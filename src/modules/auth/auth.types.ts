@@ -18,11 +18,10 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+// Flat auth payload so clients get id/email/fullName/role alongside the tokens.
 export interface AuthResult extends AuthTokens {
-  user: {
-    id: string;
-    email: string;
-    fullName: string;
-    role: Role;
-  };
+  id: string;
+  email: string;
+  fullName: string;
+  role: Role;
 }

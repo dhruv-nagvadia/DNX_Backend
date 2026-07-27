@@ -44,10 +44,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  // A user who is a service provider owns exactly one provider profile.
-  providerProfile Provider?
+  // A provider user can own multiple businesses.
+  providers Provider[]
   // Bookings this user has made as a customer.
-  bookings        Booking[]
+  bookings  Booking[]
 
   @@index([role])
 }
@@ -72,8 +72,8 @@ model Category {
 
 model Provider {
   id          String   @id @default(cuid())
-  // The user account that owns/manages this provider profile.
-  userId      String   @unique
+  // The user account that owns/manages this business (a user can own many).
+  userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryId  String
   category    Category @relation(fields: [categoryId], references: [id])
@@ -104,6 +104,7 @@ model Provider {
   services Service[]
   bookings Booking[]
 
+  @@index([userId])
   @@index([categoryId])
   @@index([city])
   @@index([isActive])
