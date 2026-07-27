@@ -1,0 +1,162 @@
+// Prisma schema for the AI Life Services Platform
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Enums
+// ────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  PROVIDER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Models
+// ────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String
+  fullName     String
+  role         Role     @default(USER)
+  avatarUrl    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // A user who is a service provider owns exactly one provider profile.
+  providerProfile Provider?
+  // Bookings this user has made as a customer.
+  bookings        Booking[]
+
+  @@index([role])
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  // e.g. "medical", "salon", "fitness"
+  slug        String   @unique
+  name        String
+  description String?
+  iconUrl     String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  providers Provider[]
+  services  Service[]
+
+  @@index([isActive])
+}
+
+model Provider {
+  id          String   @id @default(cuid())
+  // The user account that owns/manages this provider profile.
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+
+  businessName String
+  description  String?
+  phone        String
+  email        String?
+
+  // Location (PostGIS can be added later for geo-radius queries).
+  addressLine  String?
+  city         String?
+  state        String?
+  postalCode   String?
+  latitude     Float?
+  longitude    Float?
+
+  // Business gallery image URLs (first one acts as the cover).
+  images       String[] @default([])
+
+  ratingAvg    Float    @default(0)
+  ratingCount  Int      @default(0)
+  isVerified   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  services Service[]
+  bookings Booking[]
+
+  @@index([categoryId])
+  @@index([city])
+  @@index([isActive])
+}
+
+model Service {
+  id            String   @id @default(cuid())
+  providerId    String
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+
+  name          String
+  description   String?
+  // Price stored in the smallest currency unit (e.g. paise/cents) to avoid float errors.
+  priceMinor    Int
+  currency      String   @default("INR")
+  durationMin   Int      @default(30)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@index([providerId])
+  @@index([categoryId])
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  providerId  String
+  provider    Provider      @relation(fields: [providerId], references: [id])
+  serviceId   String
+  service     Service       @relation(fields: [serviceId], references: [id])
+
+  startTime   DateTime
+  endTime     DateTime
+  status      BookingStatus @default(PENDING)
+  notes       String?
+
+  // Phase 2: payment fields (kept nullable for now).
+  amountMinor Int?
+  currency    String?
+  paymentRef  String?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([providerId])
+  @@index([status])
+  // Prevents the exact same provider slot from being double-booked.
+  @@unique([providerId, startTime])
+}
