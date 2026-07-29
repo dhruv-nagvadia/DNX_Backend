@@ -1,6 +1,7 @@
 export interface CreateProviderInput {
   businessName: string;
   categoryId: string;
+  subcategoryId?: string;
   phone: string;
   email?: string;
   description?: string;

@@ -64,19 +64,41 @@ model Category {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  providers Provider[]
-  services  Service[]
+  providers     Provider[]
+  services      Service[]
+  subcategories Subcategory[]
 
+  @@index([isActive])
+}
+
+model Subcategory {
+  id          String   @id @default(cuid())
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  // e.g. "dentist", "general-physician", "plumber"
+  slug        String   @unique
+  name        String
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  providers Provider[]
+
+  @@index([categoryId])
   @@index([isActive])
 }
 
 model Provider {
   id          String   @id @default(cuid())
   // The user account that owns/manages this business (a user can own many).
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category     @relation(fields: [categoryId], references: [id])
+  // The specific business type within the category (e.g. Dentist under Healthcare).
+  subcategoryId String?
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
 
   businessName String
   description  String?
@@ -106,6 +128,7 @@ model Provider {
 
   @@index([userId])
   @@index([categoryId])
+  @@index([subcategoryId])
   @@index([city])
   @@index([isActive])
 }

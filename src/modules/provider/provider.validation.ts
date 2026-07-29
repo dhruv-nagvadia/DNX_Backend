@@ -4,6 +4,7 @@ export const createProviderSchema = z.object({
   body: z.object({
     businessName: z.string().min(2),
     categoryId: z.string().min(1),
+    subcategoryId: z.string().min(1).optional(),
     phone: z.string().min(8),
     email: z.string().email().optional(),
     description: z.string().max(2000).optional(),
@@ -31,6 +32,7 @@ export const updateProviderSchema = z.object({
   body: z.object({
     businessName: z.string().min(2).optional(),
     categoryId: z.string().min(1).optional(),
+    subcategoryId: z.string().min(1).optional(),
     phone: z.string().min(8).optional(),
     email: z.string().email().optional(),
     description: z.string().max(2000).optional(),

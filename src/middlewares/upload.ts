@@ -16,14 +16,13 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-
-/** Multer instance for business image uploads (max 5MB each, images only). */
+/** Multer instance for business image uploads (max 10MB each, any image type). */
 export const imageUpload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED.includes(file.mimetype)) cb(null, true);
-    else cb(ApiError.badRequest('Only JPG, PNG, WEBP, or GIF images are allowed'));
+    // Accept every image format (jpeg, png, webp, gif, bmp, svg, heic, avif, tiff, ...).
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(ApiError.badRequest('Only image files are allowed'));
   },
 });

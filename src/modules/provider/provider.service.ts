@@ -5,6 +5,7 @@ import { CreateProviderInput, ListProviderQuery, UpdateProviderInput } from './p
 
 const detailInclude = {
   category: true,
+  subcategory: true,
   services: { where: { isActive: true } },
 } satisfies Prisma.ProviderInclude;
 

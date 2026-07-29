@@ -3,31 +3,160 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const categories = [
-  { slug: 'medical', name: 'Doctors & Dentists', sortOrder: 1 },
-  { slug: 'salon', name: 'Salons & Beauty', sortOrder: 2 },
-  { slug: 'fitness', name: 'Fitness & Gyms', sortOrder: 3 },
-  { slug: 'tutors', name: 'Tutors & Coaching', sortOrder: 4 },
-  { slug: 'legal', name: 'Lawyers & Consultants', sortOrder: 5 },
-  { slug: 'mechanic', name: 'Mechanics & Vehicle Services', sortOrder: 6 },
-  { slug: 'home-services', name: 'Plumbers & Electricians', sortOrder: 7 },
-  { slug: 'cleaning', name: 'Home Cleaning', sortOrder: 8 },
-  { slug: 'photographer', name: 'Photographers', sortOrder: 9 },
-  { slug: 'kirana', name: 'Kirana & Grocery Stores', sortOrder: 10 },
-  { slug: 'appliance', name: 'Appliance Maintenance', sortOrder: 11 },
-  { slug: 'insurance', name: 'Insurance & Renewals', sortOrder: 12 },
-  { slug: 'government', name: 'Government & Passport Services', sortOrder: 13 },
+/**
+ * Full category -> subcategory (business type) taxonomy.
+ * Each group holds the specific business types a provider can register as.
+ */
+const taxonomy: { slug: string; name: string; sub: string[] }[] = [
+  {
+    slug: 'healthcare',
+    name: 'Healthcare',
+    sub: [
+      'General Physician (MD)',
+      'Dentist',
+      'Pediatrician',
+      'Dermatologist',
+      'Gynecologist',
+      'Orthopedic',
+      'ENT Specialist',
+      'Eye Specialist',
+      'Cardiologist',
+      'Psychologist / Therapist',
+      'Physiotherapist',
+      'Ayurveda / Homeopathy',
+      'Veterinary',
+      'Diagnostic Lab',
+      'Pharmacy',
+    ],
+  },
+  {
+    slug: 'beauty',
+    name: 'Beauty & Wellness',
+    sub: [
+      'Unisex Salon',
+      "Men's Salon / Barber",
+      "Women's Beauty Parlour",
+      'Spa & Massage',
+      'Nail Studio',
+      'Makeup Artist',
+      'Tattoo Studio',
+    ],
+  },
+  {
+    slug: 'fitness',
+    name: 'Fitness',
+    sub: ['Gym', 'Yoga Studio', 'Personal Trainer', 'Dance Studio', 'Martial Arts', 'Zumba / Aerobics'],
+  },
+  {
+    slug: 'education',
+    name: 'Education & Coaching',
+    sub: [
+      'Private Tutor',
+      'Coaching Institute',
+      'Music Classes',
+      'Language Classes',
+      'Skill / Vocational Training',
+      'Driving School',
+    ],
+  },
+  {
+    slug: 'home',
+    name: 'Home Services',
+    sub: [
+      'Plumber',
+      'Electrician',
+      'Carpenter',
+      'Painter',
+      'AC & Appliance Repair',
+      'Pest Control',
+      'Home Cleaning',
+      'Packers & Movers',
+      'Interior Designer',
+    ],
+  },
+  {
+    slug: 'automotive',
+    name: 'Automotive',
+    sub: ['Car Mechanic', 'Bike Mechanic', 'Car Wash & Detailing', 'Tyre & Puncture', 'Car Rental'],
+  },
+  {
+    slug: 'professional',
+    name: 'Professional Services',
+    sub: [
+      'Lawyer',
+      'Chartered Accountant (CA)',
+      'Financial Advisor',
+      'Real Estate Agent',
+      'Insurance Agent',
+      'Notary',
+    ],
+  },
+  {
+    slug: 'events',
+    name: 'Events & Photography',
+    sub: ['Photographer', 'Videographer', 'Event Planner', 'Caterer', 'Decorator', 'DJ / Music'],
+  },
+  {
+    slug: 'retail',
+    name: 'Retail & Stores',
+    sub: [
+      'Kirana / Grocery Store',
+      'Supermarket',
+      'Stationery',
+      'Mobile & Electronics',
+      'Clothing Store',
+      'Hardware Store',
+    ],
+  },
+  {
+    slug: 'food',
+    name: 'Food & Hospitality',
+    sub: ['Restaurant', 'Cafe', 'Bakery', 'Cloud Kitchen', 'Tiffin Service', 'Sweet Shop'],
+  },
+  {
+    slug: 'government',
+    name: 'Government & Documentation',
+    sub: ['Passport & Visa Services', 'Aadhaar / PAN Services', 'Notary & Attestation', 'Tax Filing'],
+  },
+  {
+    slug: 'other',
+    name: 'Other Services',
+    sub: ['Laundry & Dry Cleaning', 'Tailor', 'Cobbler', 'Courier & Logistics', 'Pet Grooming'],
+  },
 ];
 
+const slugify = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 async function main() {
-  for (const c of categories) {
-    await prisma.category.upsert({
-      where: { slug: c.slug },
-      update: { name: c.name, sortOrder: c.sortOrder },
-      create: c,
+  // Clean reset of the taxonomy + businesses (users are kept).
+  await prisma.booking.deleteMany();
+  await prisma.provider.deleteMany(); // cascades services
+  await prisma.subcategory.deleteMany();
+  await prisma.category.deleteMany();
+
+  let catOrder = 1;
+  for (const cat of taxonomy) {
+    const category = await prisma.category.create({
+      data: { slug: cat.slug, name: cat.name, sortOrder: catOrder++ },
+    });
+
+    await prisma.subcategory.createMany({
+      data: cat.sub.map((name, i) => ({
+        categoryId: category.id,
+        slug: `${cat.slug}-${slugify(name)}`,
+        name,
+        sortOrder: i + 1,
+      })),
     });
   }
-  console.log(`Seeded ${categories.length} categories`);
+
+  const catCount = taxonomy.length;
+  const subCount = taxonomy.reduce((n, c) => n + c.sub.length, 0);
+  console.log(`Seeded ${catCount} categories and ${subCount} business types`);
 }
 
 main()
