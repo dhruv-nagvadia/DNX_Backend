@@ -27,6 +27,23 @@ export const listProviderSchema = z.object({
   }),
 });
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const setHoursSchema = z.object({
+  body: z.object({
+    hours: z
+      .array(
+        z.object({
+          dayOfWeek: z.coerce.number().int().min(0).max(6),
+          isOpen: z.boolean(),
+          openTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+          closeTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+        }),
+      )
+      .max(7),
+  }),
+});
+
 // All fields optional — only the provided ones are updated.
 export const updateProviderSchema = z.object({
   body: z.object({

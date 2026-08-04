@@ -22,3 +22,10 @@ export interface ListProviderQuery {
 }
 
 export type UpdateProviderInput = Partial<CreateProviderInput>;
+
+export interface BusinessHourInput {
+  dayOfWeek: number; // 0 = Sunday ... 6 = Saturday
+  isOpen: boolean;
+  openTime: string; // "HH:MM"
+  closeTime: string;
+}

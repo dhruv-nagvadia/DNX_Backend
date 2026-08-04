@@ -6,28 +6,41 @@ import { imageUpload } from '@/middlewares/upload';
 import { providerController } from './provider.controller';
 import {
   createProviderSchema,
-  listProviderSchema,
   updateProviderSchema,
+  setHoursSchema,
 } from './provider.validation';
+import { serviceController } from '@/modules/service/service.controller';
+import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
 
+/**
+ * Provider-facing API (used by the web business dashboard).
+ * Mounted at /provider — the ENTIRE namespace requires a logged-in PROVIDER.
+ * `:id` is the business (provider) id.
+ */
 export const providerRoutes = Router();
-const provider = [requireAuth, requireRole(Role.PROVIDER)] as const;
+providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
 
-// Public discovery
-providerRoutes.get('/', validate(listProviderSchema), providerController.list);
-
-// Provider-only: manage your own businesses.
-// NOTE: `/me` routes are declared BEFORE `/:id` so they aren't captured as an id.
-providerRoutes.get('/me', ...provider, providerController.listMine);
-providerRoutes.get('/me/:id', ...provider, providerController.getMineOne);
-providerRoutes.patch('/me/:id', ...provider, validate(updateProviderSchema), providerController.update);
+// Businesses
+providerRoutes.get('/businesses', providerController.listMine);
+providerRoutes.post('/businesses', validate(createProviderSchema), providerController.create);
+providerRoutes.get('/businesses/:id', providerController.getMineOne);
+providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
+providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);
 providerRoutes.post(
-  '/me/:id/images',
-  ...provider,
+  '/businesses/:id/images',
   imageUpload.array('images', 8),
   providerController.uploadImages,
 );
-providerRoutes.post('/', ...provider, validate(createProviderSchema), providerController.create);
 
-// Public provider detail (keep last — greedy param route)
-providerRoutes.get('/:id', providerController.getById);
+// Services within a business
+providerRoutes.post(
+  '/businesses/:id/services',
+  validate(createServiceSchema),
+  serviceController.create,
+);
+providerRoutes.patch(
+  '/businesses/:id/services/:serviceId',
+  validate(updateServiceSchema),
+  serviceController.update,
+);
+providerRoutes.delete('/businesses/:id/services/:serviceId', serviceController.remove);

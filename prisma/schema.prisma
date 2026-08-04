@@ -123,14 +123,30 @@ model Provider {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  services Service[]
-  bookings Booking[]
+  services      Service[]
+  bookings      Booking[]
+  businessHours BusinessHour[]
 
   @@index([userId])
   @@index([categoryId])
   @@index([subcategoryId])
   @@index([city])
   @@index([isActive])
+}
+
+model BusinessHour {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int      // 0 = Sunday ... 6 = Saturday
+  isOpen     Boolean  @default(true)
+  openTime   String   @default("09:00") // "HH:MM" 24-hour
+  closeTime  String   @default("18:00")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, dayOfWeek])
+  @@index([providerId])
 }
 
 model Service {

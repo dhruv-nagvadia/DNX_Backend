@@ -3,18 +3,9 @@ import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
 import { providerService } from './provider.service';
-import { ListProviderQuery } from './provider.types';
 
-const list = asyncHandler(async (req: Request, res: Response) => {
-  const result = await providerService.list(req.query as unknown as ListProviderQuery);
-  sendSuccess(res, result);
-});
-
-const getById = asyncHandler(async (req: Request, res: Response) => {
-  const provider = await providerService.getById(req.params.id);
-  sendSuccess(res, provider);
-});
-
+// Public browse (list/getById) lives in the customer module. This controller
+// only handles a provider managing their OWN businesses.
 const create = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const provider = await providerService.create(req.user.sub, req.body);
@@ -39,6 +30,12 @@ const update = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, provider, 'Business updated');
 });
 
+const setHours = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const provider = await providerService.setHours(req.user.sub, req.params.id, req.body.hours);
+  sendSuccess(res, provider, 'Business hours updated');
+});
+
 const uploadImages = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const files = (req.files as Express.Multer.File[]) ?? [];
@@ -52,11 +49,10 @@ const uploadImages = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const providerController = {
-  list,
-  getById,
   create,
   listMine,
   getMineOne,
   update,
+  setHours,
   uploadImages,
 };
