@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import { Role } from '@prisma/client';
 import { validate } from '@/middlewares/validate';
-import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { requireAuth } from '@/middlewares/auth.middleware';
 import { imageUpload } from '@/middlewares/upload';
 import { providerController } from './provider.controller';
 import {
@@ -14,11 +13,19 @@ import { createServiceSchema, updateServiceSchema } from '@/modules/service/serv
 
 /**
  * Provider-facing API (used by the web business dashboard).
- * Mounted at /provider — the ENTIRE namespace requires a logged-in PROVIDER.
- * `:id` is the business (provider) id.
+ * Mounted at /provider. `:id` is the business (provider) id.
+ *
+ * Requires a logged-in user, but deliberately NOT the PROVIDER role: one person
+ * can be both a customer and a business owner, and forcing the role here would
+ * mean a customer had to register a second account to list a business.
+ *
+ * The real boundary is ownership, not role — every handler below resolves data
+ * through the caller's own userId (`listMine`, `getMineById`,
+ * `assertOwnedProvider`), so a user can only ever reach their own businesses.
+ * Creating a first business promotes USER -> PROVIDER (see provider.service).
  */
 export const providerRoutes = Router();
-providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
+providerRoutes.use(requireAuth);
 
 // Businesses
 providerRoutes.get('/businesses', providerController.listMine);
