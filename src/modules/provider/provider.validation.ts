@@ -20,6 +20,7 @@ export const createProviderSchema = z.object({
 export const listProviderSchema = z.object({
   query: z.object({
     categorySlug: z.string().optional(),
+    subcategorySlug: z.string().optional(),
     city: z.string().optional(),
     search: z.string().optional(),
     page: z.coerce.number().int().min(1).default(1),

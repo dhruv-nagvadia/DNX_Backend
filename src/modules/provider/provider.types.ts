@@ -15,6 +15,7 @@ export interface CreateProviderInput {
 
 export interface ListProviderQuery {
   categorySlug?: string;
+  subcategorySlug?: string;
   city?: string;
   search?: string;
   page: number;

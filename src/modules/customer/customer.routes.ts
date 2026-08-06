@@ -3,12 +3,18 @@ import { validate } from '@/middlewares/validate';
 import { customerController } from './customer.controller';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
+import { authController } from '@/modules/auth/auth.controller';
+import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
 
 /**
  * Customer-facing API (used by the mobile app).
- * Discovery is public; bookings require a logged-in customer.
+ * Auth here creates/authenticates CUSTOMER (USER) accounts only.
  */
 export const customerRoutes = Router();
+
+// Customer auth (public)
+customerRoutes.post('/auth/register', validate(registerSchema), authController.registerCustomer);
+customerRoutes.post('/auth/login', validate(loginSchema), authController.loginCustomer);
 
 // Public discovery
 customerRoutes.get('/providers', validate(listProviderSchema), customerController.listProviders);

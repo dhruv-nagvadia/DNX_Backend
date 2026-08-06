@@ -19,9 +19,19 @@ function signTokens(payload: AuthPayload): AuthTokens {
   return { accessToken, refreshToken };
 }
 
-async function register(input: RegisterInput): Promise<AuthResult> {
-  const existing = await prisma.user.findUnique({ where: { email: input.email } });
-  if (existing) throw ApiError.conflict('Email is already registered');
+async function register(input: RegisterInput, role: Role): Promise<AuthResult> {
+  // Uniqueness is per (email, role): the same email can be a customer AND a
+  // provider as two independent accounts.
+  const existing = await prisma.user.findUnique({
+    where: { email_role: { email: input.email, role } },
+  });
+  if (existing) {
+    throw ApiError.conflict(
+      role === Role.PROVIDER
+        ? 'A business account with this email already exists'
+        : 'An account with this email already exists',
+    );
+  }
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
   const user = await prisma.user.create({
@@ -30,7 +40,7 @@ async function register(input: RegisterInput): Promise<AuthResult> {
       passwordHash,
       fullName: input.fullName,
       phone: input.phone,
-      role: input.role ?? Role.USER,
+      role,
     },
   });
 
@@ -44,8 +54,12 @@ async function register(input: RegisterInput): Promise<AuthResult> {
   };
 }
 
-async function login(input: LoginInput): Promise<AuthResult> {
-  const user = await prisma.user.findUnique({ where: { email: input.email } });
+async function login(input: LoginInput, role: Role): Promise<AuthResult> {
+  // Scoped to the audience: a customer login only matches USER accounts, a
+  // provider login only matches PROVIDER accounts.
+  const user = await prisma.user.findUnique({
+    where: { email_role: { email: input.email, role } },
+  });
   if (!user || !user.isActive) throw ApiError.unauthorized('Invalid credentials');
 
   const ok = await bcrypt.compare(input.password, user.passwordHash);

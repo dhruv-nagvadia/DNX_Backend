@@ -1,4 +1,4 @@
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import {
@@ -29,6 +29,7 @@ async function list(query: ListProviderQuery) {
   const where: Prisma.ProviderWhereInput = { isActive: true };
 
   if (query.categorySlug) where.category = { slug: query.categorySlug };
+  if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
   if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
   if (query.search) {
     where.OR = [
@@ -67,30 +68,15 @@ async function getById(id: string) {
 }
 
 /**
- * Create a new business owned by the logged-in user (many allowed).
- *
- * Listing a business is how a plain customer becomes a provider, so this also
- * promotes USER -> PROVIDER. Nobody has to register a second account to run a
- * business, and an existing PROVIDER/ADMIN role is left untouched. Both writes
- * share a transaction so the role can never drift from the data.
+ * Create a new business owned by the logged-in PROVIDER (many allowed).
+ * Provider accounts are separate from customer accounts, so the caller is
+ * already a PROVIDER (enforced by the route) — no role promotion needed.
  */
 async function create(userId: string, input: CreateProviderInput) {
   const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
   if (!category) throw ApiError.badRequest('Invalid categoryId');
 
-  return prisma.$transaction(async (tx) => {
-    const provider = await tx.provider.create({
-      data: { ...input, userId },
-      include: ownerInclude,
-    });
-
-    await tx.user.updateMany({
-      where: { id: userId, role: Role.USER },
-      data: { role: Role.PROVIDER },
-    });
-
-    return provider;
-  });
+  return prisma.provider.create({ data: { ...input, userId }, include: ownerInclude });
 }
 
 /** All businesses owned by the logged-in provider (for the businesses list). */
