@@ -4,7 +4,12 @@ import { validate } from '@/middlewares/validate';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
 import { imageUpload } from '@/middlewares/upload';
 import { providerController } from './provider.controller';
-import { createProviderSchema, updateProviderSchema, setHoursSchema } from './provider.validation';
+import {
+  createProviderSchema,
+  updateProviderSchema,
+  setHoursSchema,
+  setDateHourSchema,
+} from './provider.validation';
 import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
 import { authController } from '@/modules/auth/auth.controller';
@@ -31,8 +36,18 @@ providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
 providerRoutes.get('/businesses', providerController.listMine);
 providerRoutes.post('/businesses', validate(createProviderSchema), providerController.create);
 providerRoutes.get('/businesses/:id', providerController.getMineOne);
+providerRoutes.get('/businesses/:id/bookings', providerController.listBookings);
 providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
 providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);
+
+// Date-specific hour overrides
+providerRoutes.get('/businesses/:id/date-hours', providerController.listDateHours);
+providerRoutes.put(
+  '/businesses/:id/date-hours',
+  validate(setDateHourSchema),
+  providerController.setDateHour,
+);
+providerRoutes.delete('/businesses/:id/date-hours/:date', providerController.deleteDateHour);
 providerRoutes.post(
   '/businesses/:id/images',
   imageUpload.array('images', 8),

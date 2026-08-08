@@ -30,3 +30,10 @@ export interface BusinessHourInput {
   openTime: string; // "HH:MM"
   closeTime: string;
 }
+
+export interface DateHourInput {
+  date: string; // "YYYY-MM-DD"
+  isOpen: boolean;
+  openTime: string; // "HH:MM"
+  closeTime: string;
+}

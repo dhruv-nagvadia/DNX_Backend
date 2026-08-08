@@ -18,6 +18,7 @@ customerRoutes.post('/auth/login', validate(loginSchema), authController.loginCu
 
 // Public discovery
 customerRoutes.get('/providers', validate(listProviderSchema), customerController.listProviders);
+customerRoutes.get('/providers/:id/booked-slots', customerController.bookedSlots);
 customerRoutes.get('/providers/:id', customerController.getProvider);
 
 // Bookings (auth handled inside the booking router)

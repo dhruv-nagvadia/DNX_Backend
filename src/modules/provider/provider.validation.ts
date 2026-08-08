@@ -45,6 +45,17 @@ export const setHoursSchema = z.object({
   }),
 });
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const setDateHourSchema = z.object({
+  body: z.object({
+    date: z.string().regex(DATE_RE, 'Date must be YYYY-MM-DD'),
+    isOpen: z.boolean(),
+    openTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+    closeTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+  }),
+});
+
 // All fields optional — only the provided ones are updated.
 export const updateProviderSchema = z.object({
   body: z.object({

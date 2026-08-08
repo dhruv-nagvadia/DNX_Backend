@@ -3,6 +3,7 @@ import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { providerService } from '@/modules/provider/provider.service';
 import { ListProviderQuery } from '@/modules/provider/provider.types';
+import { bookingService } from '@/modules/booking/booking.service';
 
 /**
  * Customer-facing discovery. Reuses the shared provider data layer but only
@@ -18,4 +19,10 @@ const getProvider = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, provider);
 });
 
-export const customerController = { listProviders, getProvider };
+/** Upcoming booked intervals, so the app can hide unavailable slots. */
+const bookedSlots = asyncHandler(async (req: Request, res: Response) => {
+  const slots = await bookingService.bookedSlots(req.params.id);
+  sendSuccess(res, slots);
+});
+
+export const customerController = { listProviders, getProvider, bookedSlots };

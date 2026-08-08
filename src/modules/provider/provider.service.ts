@@ -6,6 +6,7 @@ import {
   ListProviderQuery,
   UpdateProviderInput,
   BusinessHourInput,
+  DateHourInput,
 } from './provider.types';
 
 // Public views show only active services.
@@ -135,6 +136,42 @@ async function setHours(userId: string, id: string, hours: BusinessHourInput[]) 
   return getMineById(userId, id);
 }
 
+/** Date-specific hour overrides, optionally within an inclusive date range. */
+async function listDateHours(userId: string, id: string, from?: string, to?: string) {
+  await getMineById(userId, id); // ownership check
+  const where: Prisma.BusinessDateHourWhereInput = { providerId: id };
+  if (from || to) {
+    where.date = {};
+    if (from) where.date.gte = new Date(from);
+    if (to) where.date.lte = new Date(to);
+  }
+  return prisma.businessDateHour.findMany({ where, orderBy: { date: 'asc' } });
+}
+
+/** Create or update the hours for one specific date. */
+async function setDateHour(userId: string, id: string, input: DateHourInput) {
+  await getMineById(userId, id); // ownership check
+  const date = new Date(input.date);
+  return prisma.businessDateHour.upsert({
+    where: { providerId_date: { providerId: id, date } },
+    create: {
+      providerId: id,
+      date,
+      isOpen: input.isOpen,
+      openTime: input.openTime,
+      closeTime: input.closeTime,
+    },
+    update: { isOpen: input.isOpen, openTime: input.openTime, closeTime: input.closeTime },
+  });
+}
+
+/** Remove a date override so the day falls back to the weekly hours. */
+async function deleteDateHour(userId: string, id: string, date: string) {
+  await getMineById(userId, id); // ownership check
+  await prisma.businessDateHour.deleteMany({ where: { providerId: id, date: new Date(date) } });
+  return { date };
+}
+
 export const providerService = {
   list,
   getById,
@@ -144,4 +181,7 @@ export const providerService = {
   update,
   addImages,
   setHours,
+  listDateHours,
+  setDateHour,
+  deleteDateHour,
 };

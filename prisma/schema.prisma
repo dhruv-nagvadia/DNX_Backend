@@ -129,6 +129,7 @@ model Provider {
   services      Service[]
   bookings      Booking[]
   businessHours BusinessHour[]
+  dateHours     BusinessDateHour[]
 
   @@index([userId])
   @@index([categoryId])
@@ -149,6 +150,23 @@ model BusinessHour {
   updatedAt  DateTime @updatedAt
 
   @@unique([providerId, dayOfWeek])
+  @@index([providerId])
+}
+
+// Date-specific opening hours that override the weekly BusinessHour for one day
+// (e.g. a holiday closure or special extended hours on a particular date).
+model BusinessDateHour {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date // the specific calendar date (no time component)
+  isOpen     Boolean  @default(true)
+  openTime   String   @default("09:00") // "HH:MM" 24-hour
+  closeTime  String   @default("18:00")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, date])
   @@index([providerId])
 }
 
