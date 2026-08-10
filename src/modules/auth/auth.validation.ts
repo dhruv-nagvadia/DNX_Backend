@@ -22,3 +22,11 @@ export const refreshSchema = z.object({
     refreshToken: z.string().min(1),
   }),
 });
+
+export const updateMeSchema = z.object({
+  body: z.object({
+    fullName: z.string().min(2).optional(),
+    phone: z.string().min(8).optional(),
+    email: z.string().email().optional(),
+  }),
+});

@@ -16,4 +16,20 @@ const listMine = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, bookings);
 });
 
-export const bookingController = { create, listMine };
+const cancel = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const booking = await bookingService.cancelByCustomer(req.user.sub, req.params.id);
+  sendSuccess(res, booking, 'Booking cancelled');
+});
+
+const reschedule = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const booking = await bookingService.rescheduleByCustomer(
+    req.user.sub,
+    req.params.id,
+    req.body.startTime,
+  );
+  sendSuccess(res, booking, 'Booking rescheduled');
+});
+
+export const bookingController = { create, listMine, cancel, reschedule };

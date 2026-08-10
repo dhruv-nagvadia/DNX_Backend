@@ -44,6 +44,18 @@ const listBookings = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, bookings);
 });
 
+const updateBooking = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  await providerService.getMineById(req.user.sub, req.params.id); // ownership check
+  const booking = await bookingService.updateStatus(
+    req.params.id,
+    req.params.bookingId,
+    req.body.status,
+    req.body.reason,
+  );
+  sendSuccess(res, booking, 'Booking updated');
+});
+
 const listDateHours = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const { from, to } = req.query as { from?: string; to?: string };
@@ -82,6 +94,7 @@ export const providerController = {
   update,
   setHours,
   listBookings,
+  updateBooking,
   listDateHours,
   setDateHour,
   deleteDateHour,

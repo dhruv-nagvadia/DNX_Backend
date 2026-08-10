@@ -63,7 +63,16 @@ async function list(query: ListProviderQuery) {
 }
 
 async function getById(id: string) {
-  const provider = await prisma.provider.findUnique({ where: { id }, include: publicInclude });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const provider = await prisma.provider.findUnique({
+    where: { id },
+    include: {
+      ...publicInclude,
+      // Future date-specific overrides, so the app can adjust availability.
+      dateHours: { where: { date: { gte: today } }, orderBy: { date: 'asc' } },
+    },
+  });
   if (!provider || !provider.isActive) throw ApiError.notFound('Provider not found');
   return provider;
 }

@@ -12,6 +12,8 @@ import {
 } from './provider.validation';
 import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
+import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
+import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
 
@@ -37,6 +39,12 @@ providerRoutes.get('/businesses', providerController.listMine);
 providerRoutes.post('/businesses', validate(createProviderSchema), providerController.create);
 providerRoutes.get('/businesses/:id', providerController.getMineOne);
 providerRoutes.get('/businesses/:id/bookings', providerController.listBookings);
+providerRoutes.patch(
+  '/businesses/:id/bookings/:bookingId',
+  validate(updateBookingStatusSchema),
+  providerController.updateBooking,
+);
+providerRoutes.get('/businesses/:id/reviews', reviewController.listForOwner);
 providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
 providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);
 

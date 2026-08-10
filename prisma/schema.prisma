@@ -48,6 +48,8 @@ model User {
   providers Provider[]
   // Bookings this user has made as a customer.
   bookings  Booking[]
+  // Reviews this user has written.
+  reviews   Review[]
 
   // Accounts are per-audience: the same email can exist once as a customer
   // (USER) and once as a business (PROVIDER) — two independent accounts.
@@ -130,6 +132,7 @@ model Provider {
   bookings      Booking[]
   businessHours BusinessHour[]
   dateHours     BusinessDateHour[]
+  reviews       Review[]
 
   @@index([userId])
   @@index([categoryId])
@@ -206,6 +209,8 @@ model Booking {
   endTime     DateTime
   status      BookingStatus @default(PENDING)
   notes       String?
+  // Reason a provider gives when they cancel — shown to the customer.
+  cancelReason String?
 
   // Phase 2: payment fields (kept nullable for now).
   amountMinor Int?
@@ -215,9 +220,28 @@ model Booking {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
+  review      Review?
+
   @@index([userId])
   @@index([providerId])
   @@index([status])
   // Prevents the exact same provider slot from being double-booked.
   @@unique([providerId, startTime])
+}
+
+// A customer's review of a completed booking. One review per booking.
+model Review {
+  id         String   @id @default(cuid())
+  bookingId  String   @unique
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  rating     Int // 1..5
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([providerId])
+  @@index([userId])
 }

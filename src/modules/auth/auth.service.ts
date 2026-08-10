@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { env } from '@/config';
 import { ApiError } from '@/utils/ApiError';
@@ -93,4 +93,24 @@ async function me(userId: string) {
   return user;
 }
 
-export const authService = { register, login, refresh, me };
+/** Updates the signed-in account's own profile fields. */
+async function updateMe(
+  userId: string,
+  input: { fullName?: string; phone?: string; email?: string },
+) {
+  try {
+    return await prisma.user.update({
+      where: { id: userId },
+      data: { fullName: input.fullName, phone: input.phone, email: input.email },
+      select: { id: true, email: true, fullName: true, role: true, phone: true, avatarUrl: true },
+    });
+  } catch (err) {
+    // @@unique([email, role]) — the email is taken by another account of this type.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw ApiError.conflict('That email is already in use');
+    }
+    throw err;
+  }
+}
+
+export const authService = { register, login, refresh, me, updateMe };

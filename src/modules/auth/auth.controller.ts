@@ -41,6 +41,12 @@ const me = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, user);
 });
 
+const updateMe = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const user = await authService.updateMe(req.user.sub, req.body);
+  sendSuccess(res, user, 'Profile updated');
+});
+
 export const authController = {
   registerCustomer,
   loginCustomer,
@@ -48,4 +54,5 @@ export const authController = {
   loginProvider,
   refresh,
   me,
+  updateMe,
 };
