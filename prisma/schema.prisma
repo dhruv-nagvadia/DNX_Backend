@@ -28,6 +28,14 @@ enum BookingStatus {
   NO_SHOW
 }
 
+enum ReminderRepeat {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Models
 // ────────────────────────────────────────────────────────────────────────────
@@ -50,6 +58,8 @@ model User {
   bookings  Booking[]
   // Reviews this user has written.
   reviews   Review[]
+  // Personal reminders (renewals, follow-ups, etc.).
+  reminders Reminder[]
 
   // Accounts are per-audience: the same email can exist once as a customer
   // (USER) and once as a business (PROVIDER) — two independent accounts.
@@ -227,6 +237,31 @@ model Booking {
   @@index([status])
   // Prevents the exact same provider slot from being double-booked.
   @@unique([providerId, startTime])
+}
+
+// A customer's personal reminder — a manual renewal/service (car insurance,
+// bike service, warranty…) or a follow-up to a booking. `repeat` rolls the due
+// date forward when marked done; `providerId` optionally links a business.
+model Reminder {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  // Free-form category: vehicle | insurance | health | document | home | appointment | other
+  type             String         @default("other")
+  // dueDate = the next occurrence we remind on (the start date, rolled forward).
+  dueDate          DateTime
+  // Optional cap: a repeating reminder stops after this date.
+  endDate          DateTime?
+  repeat           ReminderRepeat @default(NONE)
+  remindDaysBefore Int            @default(1)
+  note             String?
+  providerId       String?
+  completedAt      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([userId])
 }
 
 // A customer's review of a completed booking. One review per booking.
