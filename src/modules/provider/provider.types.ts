@@ -11,6 +11,7 @@ export interface CreateProviderInput {
   postalCode?: string;
   latitude?: number;
   longitude?: number;
+  depositPercent?: number;
 }
 
 export interface ListProviderQuery {

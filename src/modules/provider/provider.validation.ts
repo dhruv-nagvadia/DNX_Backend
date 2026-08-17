@@ -14,6 +14,7 @@ export const createProviderSchema = z.object({
     postalCode: z.string().optional(),
     latitude: z.coerce.number().optional(),
     longitude: z.coerce.number().optional(),
+    depositPercent: z.coerce.number().int().min(0).max(100).optional(),
   }),
 });
 
@@ -71,5 +72,6 @@ export const updateProviderSchema = z.object({
     postalCode: z.string().optional(),
     latitude: z.coerce.number().optional(),
     longitude: z.coerce.number().optional(),
+    depositPercent: z.coerce.number().int().min(0).max(100).optional(),
   }),
 });

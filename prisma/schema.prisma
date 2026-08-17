@@ -36,6 +36,20 @@ enum ReminderRepeat {
   YEARLY
 }
 
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH
+  PARTIAL
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Models
 // ────────────────────────────────────────────────────────────────────────────
@@ -133,6 +147,8 @@ model Provider {
 
   ratingAvg    Float    @default(0)
   ratingCount  Int      @default(0)
+  // % of the total a customer must pay up front for a "partial" booking (0 = off).
+  depositPercent Int    @default(0)
   isVerified   Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -222,10 +238,14 @@ model Booking {
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
 
-  // Phase 2: payment fields (kept nullable for now).
-  amountMinor Int?
-  currency    String?
-  paymentRef  String?
+  // Payment (Razorpay).
+  amountMinor     Int?
+  amountPaidMinor Int           @default(0) // paid so far (deposit or full)
+  currency        String?
+  paymentMethod   PaymentMethod @default(ONLINE)
+  paymentStatus   PaymentStatus @default(PENDING)
+  razorpayOrderId String? // payment-link / order id
+  paymentRef      String? // razorpay payment id once paid
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

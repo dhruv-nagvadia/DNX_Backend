@@ -4,6 +4,7 @@ import { customerController } from './customer.controller';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
 import { reminderRoutes } from '@/modules/reminder/reminder.routes';
+import { paymentRoutes } from '@/modules/payment/payment.routes';
 import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
@@ -29,3 +30,6 @@ customerRoutes.use('/bookings', bookingRoutes);
 
 // Reminders (auth handled inside the reminder router)
 customerRoutes.use('/reminders', reminderRoutes);
+
+// Payments (auth handled inside the payment router)
+customerRoutes.use('/payments', paymentRoutes);

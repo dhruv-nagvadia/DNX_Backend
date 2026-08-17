@@ -3,4 +3,5 @@ export interface CreateBookingInput {
   serviceId: string;
   startTime: string; // ISO datetime
   notes?: string;
+  paymentMethod?: 'ONLINE' | 'CASH' | 'PARTIAL';
 }

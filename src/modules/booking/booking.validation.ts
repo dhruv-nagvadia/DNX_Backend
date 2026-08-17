@@ -6,6 +6,7 @@ export const createBookingSchema = z.object({
     serviceId: z.string().min(1),
     startTime: z.string().datetime({ message: 'startTime must be an ISO datetime' }),
     notes: z.string().max(500).optional(),
+    paymentMethod: z.enum(['ONLINE', 'CASH', 'PARTIAL']).default('ONLINE'),
   }),
 });
 
