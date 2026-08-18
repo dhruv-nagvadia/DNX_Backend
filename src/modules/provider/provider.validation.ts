@@ -57,6 +57,14 @@ export const setDateHourSchema = z.object({
   }),
 });
 
+// Replace the whole gallery in the given order (first = cover). Used for
+// reordering / setting a cover / removing photos.
+export const setImagesSchema = z.object({
+  body: z.object({
+    images: z.array(z.string().min(1)).max(12),
+  }),
+});
+
 // All fields optional — only the provided ones are updated.
 export const updateProviderSchema = z.object({
   body: z.object({

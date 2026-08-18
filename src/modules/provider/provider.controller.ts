@@ -32,6 +32,18 @@ const update = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, provider, 'Business updated');
 });
 
+const remove = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const result = await providerService.remove(req.user.sub, req.params.id);
+  sendSuccess(res, result, 'Business deleted');
+});
+
+const setImages = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const provider = await providerService.setImages(req.user.sub, req.params.id, req.body.images);
+  sendSuccess(res, provider, 'Photos updated');
+});
+
 const setHours = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const provider = await providerService.setHours(req.user.sub, req.params.id, req.body.hours);
@@ -108,6 +120,8 @@ export const providerController = {
   listMine,
   getMineOne,
   update,
+  remove,
+  setImages,
   setHours,
   listBookings,
   listAllBookings,

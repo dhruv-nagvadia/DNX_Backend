@@ -127,6 +127,26 @@ async function addImages(userId: string, id: string, urls: string[]) {
   });
 }
 
+/** Replace the gallery with a new ordered list (first = cover) — reorder/remove. */
+async function setImages(userId: string, id: string, images: string[]) {
+  await getMineById(userId, id); // ownership check
+  return prisma.provider.update({ where: { id }, data: { images }, include: ownerInclude });
+}
+
+/**
+ * Permanently delete an owned business and everything under it. Bookings have
+ * no cascade from Provider, so remove them first (their reviews cascade off the
+ * booking); deleting the provider then cascades services, hours and overrides.
+ */
+async function remove(userId: string, id: string) {
+  await getMineById(userId, id); // ownership check
+  await prisma.$transaction([
+    prisma.booking.deleteMany({ where: { providerId: id } }),
+    prisma.provider.delete({ where: { id } }),
+  ]);
+  return { id };
+}
+
 /** Replaces the weekly business hours for an owned business. */
 async function setHours(userId: string, id: string, hours: BusinessHourInput[]) {
   await getMineById(userId, id); // ownership check
@@ -188,7 +208,9 @@ export const providerService = {
   listMine,
   getMineById,
   update,
+  remove,
   addImages,
+  setImages,
   setHours,
   listDateHours,
   setDateHour,

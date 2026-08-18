@@ -9,6 +9,7 @@ import {
   updateProviderSchema,
   setHoursSchema,
   setDateHourSchema,
+  setImagesSchema,
 } from './provider.validation';
 import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
@@ -53,6 +54,7 @@ providerRoutes.post(
 );
 providerRoutes.get('/businesses/:id/reviews', reviewController.listForOwner);
 providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
+providerRoutes.delete('/businesses/:id', providerController.remove);
 providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);
 
 // Date-specific hour overrides
@@ -67,6 +69,12 @@ providerRoutes.post(
   '/businesses/:id/images',
   imageUpload.array('images', 8),
   providerController.uploadImages,
+);
+// Reorder / set cover / remove — replaces the ordered gallery list.
+providerRoutes.put(
+  '/businesses/:id/images',
+  validate(setImagesSchema),
+  providerController.setImages,
 );
 
 // Services within a business
