@@ -34,6 +34,9 @@ providerRoutes.post('/auth/login', validate(loginSchema), authController.loginPr
 // Everything below requires a logged-in PROVIDER.
 providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
 
+// Home dashboard — bookings across every owned business
+providerRoutes.get('/bookings', providerController.listAllBookings);
+
 // Businesses
 providerRoutes.get('/businesses', providerController.listMine);
 providerRoutes.post('/businesses', validate(createProviderSchema), providerController.create);

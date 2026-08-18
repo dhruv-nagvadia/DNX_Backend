@@ -45,6 +45,13 @@ const listBookings = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, bookings);
 });
 
+// Every booking across all of the provider's businesses (home dashboard).
+const listAllBookings = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const bookings = await bookingService.listForOwner(req.user.sub);
+  sendSuccess(res, bookings);
+});
+
 const updateBooking = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   await providerService.getMineById(req.user.sub, req.params.id); // ownership check
@@ -103,6 +110,7 @@ export const providerController = {
   update,
   setHours,
   listBookings,
+  listAllBookings,
   updateBooking,
   collectBookingPayment,
   listDateHours,

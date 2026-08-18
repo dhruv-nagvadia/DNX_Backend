@@ -38,6 +38,12 @@ const providerBookingSelect = {
   user: { select: { fullName: true, phone: true } },
 } satisfies Prisma.BookingSelect;
 
+// Provider dashboard across ALL of an owner's businesses — adds the business name.
+const ownerBookingSelect = {
+  ...providerBookingSelect,
+  provider: { select: { id: true, businessName: true } },
+} satisfies Prisma.BookingSelect;
+
 // Allowed provider-driven status transitions (others are terminal).
 const PROVIDER_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
@@ -116,6 +122,15 @@ async function listForProvider(providerId: string) {
   });
 }
 
+/** Every booking across all businesses owned by this provider (dashboard). */
+async function listForOwner(userId: string) {
+  return prisma.booking.findMany({
+    where: { provider: { userId } },
+    orderBy: { startTime: 'desc' },
+    select: ownerBookingSelect,
+  });
+}
+
 /** Provider changes a booking's status (confirm / complete / cancel). */
 async function updateStatus(
   providerId: string,
@@ -190,6 +205,7 @@ export const bookingService = {
   listMine,
   bookedSlots,
   listForProvider,
+  listForOwner,
   updateStatus,
   cancelByCustomer,
   rescheduleByCustomer,
