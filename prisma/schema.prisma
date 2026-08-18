@@ -50,6 +50,22 @@ enum PaymentMethod {
   PARTIAL
 }
 
+// Whether a business sells time-based services (appointments) or physical
+// goods (a store/catalog with product orders).
+enum BusinessType {
+  SERVICE
+  STORE
+}
+
+// Lifecycle of a product order (pickup). Mirrors BookingStatus but for goods.
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  READY
+  COMPLETED
+  CANCELLED
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Models
 // ────────────────────────────────────────────────────────────────────────────
@@ -70,6 +86,8 @@ model User {
   providers Provider[]
   // Bookings this user has made as a customer.
   bookings  Booking[]
+  // Product orders this user has placed as a customer.
+  orders    Order[]
   // Reviews this user has written.
   reviews   Review[]
   // Personal reminders (renewals, follow-ups, etc.).
@@ -88,6 +106,8 @@ model Category {
   name        String
   description String?
   iconUrl     String?
+  // Whether this category is for service (appointment) or store (product) businesses.
+  type        BusinessType @default(SERVICE)
   isActive    Boolean  @default(true)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
@@ -129,6 +149,9 @@ model Provider {
   subcategoryId String?
   subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
 
+  // Time-based services (appointments) vs a goods store (product orders).
+  type          BusinessType @default(SERVICE)
+
   businessName String
   description  String?
   phone        String
@@ -159,6 +182,9 @@ model Provider {
   businessHours BusinessHour[]
   dateHours     BusinessDateHour[]
   reviews       Review[]
+  // Catalog + orders (only used when type = STORE).
+  products      Product[]
+  orders        Order[]
 
   @@index([userId])
   @@index([categoryId])
@@ -299,4 +325,78 @@ model Review {
 
   @@index([providerId])
   @@index([userId])
+}
+
+// A sellable item in a STORE business's catalog (grains, soap, shampoo…).
+// The equivalent of a Service, but priced per unit with tracked stock.
+model Product {
+  id          String   @id @default(cuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  priceMinor  Int
+  currency    String   @default("INR")
+  // Selling unit label, e.g. "1 kg", "500 ml", "piece".
+  unit        String   @default("piece")
+  // Optional grouping shown to customers, e.g. "Grains", "Toiletries".
+  section     String?
+  // Tracked inventory; decremented when an order is placed.
+  stockQty    Int      @default(0)
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems  OrderItem[]
+
+  @@index([providerId])
+}
+
+// A customer's product order from a STORE business (pickup). No time slot —
+// reuses the same payment fields as Booking so payments work identically.
+model Order {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  providerId  String
+  provider    Provider    @relation(fields: [providerId], references: [id])
+
+  status      OrderStatus @default(PENDING)
+  note        String?
+
+  amountMinor     Int
+  amountPaidMinor Int           @default(0)
+  currency        String        @default("INR")
+  paymentMethod   PaymentMethod @default(ONLINE)
+  paymentStatus   PaymentStatus @default(PENDING)
+  razorpayOrderId String?
+  paymentRef      String?
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  items       OrderItem[]
+
+  @@index([userId])
+  @@index([providerId])
+  @@index([status])
+}
+
+// A line in an order. Name/price/unit are snapshotted so past orders stay
+// accurate even if the product later changes or is removed.
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String?
+  product    Product? @relation(fields: [productId], references: [id])
+
+  name       String
+  priceMinor Int
+  unit       String   @default("piece")
+  quantity   Int
+
+  @@index([orderId])
 }

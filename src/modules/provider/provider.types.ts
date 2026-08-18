@@ -2,6 +2,7 @@ export interface CreateProviderInput {
   businessName: string;
   categoryId: string;
   subcategoryId?: string;
+  type?: 'SERVICE' | 'STORE';
   phone: string;
   email?: string;
   description?: string;

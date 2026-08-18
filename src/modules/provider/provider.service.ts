@@ -17,11 +17,12 @@ const publicInclude = {
   businessHours: { orderBy: { dayOfWeek: 'asc' } },
 } satisfies Prisma.ProviderInclude;
 
-// The owner sees ALL their services (so they can re-enable inactive ones).
+// The owner sees ALL their services/products (so they can re-enable inactive ones).
 const ownerInclude = {
   category: true,
   subcategory: true,
   services: { orderBy: { createdAt: 'asc' } },
+  products: { orderBy: [{ section: 'asc' }, { createdAt: 'asc' }] },
   businessHours: { orderBy: { dayOfWeek: 'asc' } },
 } satisfies Prisma.ProviderInclude;
 
@@ -142,6 +143,7 @@ async function remove(userId: string, id: string) {
   await getMineById(userId, id); // ownership check
   await prisma.$transaction([
     prisma.booking.deleteMany({ where: { providerId: id } }),
+    prisma.order.deleteMany({ where: { providerId: id } }),
     prisma.provider.delete({ where: { id } }),
   ]);
   return { id };

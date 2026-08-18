@@ -7,7 +7,9 @@ const prisma = new PrismaClient();
  * Full category -> subcategory (business type) taxonomy.
  * Each group holds the specific business types a provider can register as.
  */
-const taxonomy: { slug: string; name: string; sub: string[] }[] = [
+type BizType = 'SERVICE' | 'STORE';
+
+const taxonomy: { slug: string; name: string; sub: string[]; type?: BizType }[] = [
   {
     slug: 'healthcare',
     name: 'Healthcare',
@@ -99,9 +101,16 @@ const taxonomy: { slug: string; name: string; sub: string[] }[] = [
   {
     slug: 'retail',
     name: 'Retail & Stores',
+    type: 'STORE',
     sub: [
       'Kirana / Grocery Store',
+      'General Store',
       'Supermarket',
+      'Dairy / Amul Parlour',
+      'Medical / Pharmacy Store',
+      'Cosmetics & Beauty Store',
+      'Fruits & Vegetables',
+      'Sweets & Bakery',
       'Stationery',
       'Mobile & Electronics',
       'Clothing Store',
@@ -111,6 +120,7 @@ const taxonomy: { slug: string; name: string; sub: string[] }[] = [
   {
     slug: 'food',
     name: 'Food & Hospitality',
+    type: 'STORE',
     sub: ['Restaurant', 'Cafe', 'Bakery', 'Cloud Kitchen', 'Tiffin Service', 'Sweet Shop'],
   },
   {
@@ -141,7 +151,7 @@ async function main() {
   let catOrder = 1;
   for (const cat of taxonomy) {
     const category = await prisma.category.create({
-      data: { slug: cat.slug, name: cat.name, sortOrder: catOrder++ },
+      data: { slug: cat.slug, name: cat.name, sortOrder: catOrder++, type: cat.type ?? 'SERVICE' },
     });
 
     await prisma.subcategory.createMany({

@@ -13,6 +13,8 @@ import {
 } from './provider.validation';
 import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
+import { productController } from '@/modules/product/product.controller';
+import { createProductSchema, updateProductSchema } from '@/modules/product/product.validation';
 import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
 import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
@@ -89,3 +91,17 @@ providerRoutes.patch(
   serviceController.update,
 );
 providerRoutes.delete('/businesses/:id/services/:serviceId', serviceController.remove);
+
+// Products within a STORE business (catalog management)
+providerRoutes.get('/businesses/:id/products', productController.list);
+providerRoutes.post(
+  '/businesses/:id/products',
+  validate(createProductSchema),
+  productController.create,
+);
+providerRoutes.patch(
+  '/businesses/:id/products/:productId',
+  validate(updateProductSchema),
+  productController.update,
+);
+providerRoutes.delete('/businesses/:id/products/:productId', productController.remove);
