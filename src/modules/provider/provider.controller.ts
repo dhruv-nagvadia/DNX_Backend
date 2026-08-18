@@ -4,6 +4,7 @@ import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
 import { providerService } from './provider.service';
 import { bookingService } from '@/modules/booking/booking.service';
+import { paymentService } from '@/modules/payment/payment.service';
 
 // Public browse (list/getById) lives in the customer module. This controller
 // only handles a provider managing their OWN businesses.
@@ -56,6 +57,14 @@ const updateBooking = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, booking, 'Booking updated');
 });
 
+// Provider marks the outstanding cash balance as collected (cash / partial-remaining).
+const collectBookingPayment = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  await providerService.getMineById(req.user.sub, req.params.id); // ownership check
+  const result = await paymentService.collectPayment(req.params.id, req.params.bookingId);
+  sendSuccess(res, result, 'Payment collected');
+});
+
 const listDateHours = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const { from, to } = req.query as { from?: string; to?: string };
@@ -95,6 +104,7 @@ export const providerController = {
   setHours,
   listBookings,
   updateBooking,
+  collectBookingPayment,
   listDateHours,
   setDateHour,
   deleteDateHour,

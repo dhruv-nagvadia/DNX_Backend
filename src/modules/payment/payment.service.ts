@@ -57,6 +57,27 @@ async function markPaid(bookingId: string, paidMinor: number, paymentRef: string
   });
 }
 
+/**
+ * Provider records that the outstanding balance was collected in person (cash).
+ * Applies to CASH bookings (nothing paid online) and PARTIAL bookings (deposit
+ * paid online, remainder due at the venue) — both become fully PAID.
+ * Ownership is enforced by the provider controller before this runs.
+ */
+async function collectPayment(providerId: string, bookingId: string) {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking || booking.providerId !== providerId) throw ApiError.notFound('Booking not found');
+  if (booking.status === 'CANCELLED') throw ApiError.badRequest('This booking was cancelled');
+
+  const total = booking.amountMinor ?? 0;
+  if (total <= 0) throw ApiError.badRequest('This booking has no amount to collect');
+  if (booking.paymentStatus === 'PAID' || booking.amountPaidMinor >= total) {
+    throw ApiError.badRequest('This booking is already fully paid');
+  }
+
+  await markPaid(booking.id, total, `cash_${Date.now()}`);
+  return { bookingId: booking.id, paymentStatus: 'PAID' as const, amountPaidMinor: total };
+}
+
 /** Creates a Razorpay payment link for the online charge (or signals test mode). */
 async function createPaymentLink(userId: string, bookingId: string) {
   const booking = await getPayableBooking(userId, bookingId);
@@ -147,4 +168,10 @@ async function handleWebhook(rawBody: Buffer, signature?: string) {
   return { received: true };
 }
 
-export const paymentService = { createPaymentLink, simulatePayment, syncPayment, handleWebhook };
+export const paymentService = {
+  createPaymentLink,
+  simulatePayment,
+  syncPayment,
+  handleWebhook,
+  collectPayment,
+};

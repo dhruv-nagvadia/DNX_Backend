@@ -44,6 +44,10 @@ providerRoutes.patch(
   validate(updateBookingStatusSchema),
   providerController.updateBooking,
 );
+providerRoutes.post(
+  '/businesses/:id/bookings/:bookingId/collect',
+  providerController.collectBookingPayment,
+);
 providerRoutes.get('/businesses/:id/reviews', reviewController.listForOwner);
 providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
 providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);
