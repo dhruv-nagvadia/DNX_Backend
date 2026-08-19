@@ -22,7 +22,7 @@ const ownerInclude = {
   category: true,
   subcategory: true,
   services: { orderBy: { createdAt: 'asc' } },
-  products: { orderBy: [{ section: 'asc' }, { createdAt: 'asc' }] },
+  products: { orderBy: { createdAt: 'asc' } },
   businessHours: { orderBy: { dayOfWeek: 'asc' } },
 } satisfies Prisma.ProviderInclude;
 
@@ -32,6 +32,7 @@ async function list(query: ListProviderQuery) {
 
   if (query.categorySlug) where.category = { slug: query.categorySlug };
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
+  if (query.type) where.type = query.type;
   if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
   if (query.search) {
     where.OR = [
@@ -72,6 +73,8 @@ async function getById(id: string) {
       ...publicInclude,
       // Future date-specific overrides, so the app can adjust availability.
       dateHours: { where: { date: { gte: today } }, orderBy: { date: 'asc' } },
+      // Catalog for STORE businesses (active items only), grouped by section.
+      products: { where: { isActive: true }, orderBy: [{ section: 'asc' }, { createdAt: 'asc' }] },
     },
   });
   if (!provider || !provider.isActive) throw ApiError.notFound('Provider not found');

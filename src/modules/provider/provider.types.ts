@@ -20,6 +20,7 @@ export interface ListProviderQuery {
   subcategorySlug?: string;
   city?: string;
   search?: string;
+  type?: 'SERVICE' | 'STORE';
   page: number;
   limit: number;
 }

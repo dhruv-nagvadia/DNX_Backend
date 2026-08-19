@@ -336,14 +336,15 @@ model Product {
 
   name        String
   description String?
+  // Price for one `unit` (paise). e.g. ₹60 / kg → priceMinor = 6000, unit = "kg".
   priceMinor  Int
   currency    String   @default("INR")
-  // Selling unit label, e.g. "1 kg", "500 ml", "piece".
+  // Selling/stock unit: "kg", "g", "litre", "ml", "piece", "dozen"…
   unit        String   @default("piece")
-  // Optional grouping shown to customers, e.g. "Grains", "Toiletries".
+  // Tracked inventory in `unit` (fractional allowed, e.g. 2.5 kg).
+  stockQty    Float    @default(0)
+  // Storefront grouping / aisle, e.g. "Grains", "Toiletries" (for section rows).
   section     String?
-  // Tracked inventory; decremented when an order is placed.
-  stockQty    Int      @default(0)
   imageUrl    String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())

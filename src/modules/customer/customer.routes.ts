@@ -3,6 +3,7 @@ import { validate } from '@/middlewares/validate';
 import { customerController } from './customer.controller';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
+import { orderRoutes } from '@/modules/order/order.routes';
 import { reminderRoutes } from '@/modules/reminder/reminder.routes';
 import { paymentRoutes } from '@/modules/payment/payment.routes';
 import { reviewController } from '@/modules/review/review.controller';
@@ -27,6 +28,9 @@ customerRoutes.get('/providers/:id', customerController.getProvider);
 
 // Bookings (auth handled inside the booking router)
 customerRoutes.use('/bookings', bookingRoutes);
+
+// Product orders (auth handled inside the order router)
+customerRoutes.use('/orders', orderRoutes);
 
 // Reminders (auth handled inside the reminder router)
 customerRoutes.use('/reminders', reminderRoutes);

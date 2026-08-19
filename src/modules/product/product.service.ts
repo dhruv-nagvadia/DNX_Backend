@@ -23,7 +23,7 @@ async function listForOwner(userId: string, providerId: string) {
   await assertOwnedProvider(userId, providerId);
   return prisma.product.findMany({
     where: { providerId },
-    orderBy: [{ section: 'asc' }, { createdAt: 'asc' }],
+    orderBy: { createdAt: 'asc' },
   });
 }
 

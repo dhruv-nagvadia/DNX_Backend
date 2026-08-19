@@ -115,6 +115,15 @@ const uploadImages = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, provider, 'Images uploaded');
 });
 
+// Uploads a single image (e.g. a product photo) and returns its URL.
+const uploadImage = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const file = req.file as Express.Multer.File | undefined;
+  if (!file) throw ApiError.badRequest('No image uploaded');
+  const url = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
+  sendSuccess(res, { url }, 'Image uploaded');
+});
+
 export const providerController = {
   create,
   listMine,
@@ -131,4 +140,5 @@ export const providerController = {
   setDateHour,
   deleteDateHour,
   uploadImages,
+  uploadImage,
 };

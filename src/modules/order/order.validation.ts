@@ -1,0 +1,18 @@
+import { z } from 'zod';
+
+export const createOrderSchema = z.object({
+  body: z.object({
+    providerId: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().min(1),
+          quantity: z.coerce.number().int().min(1),
+        }),
+      )
+      .min(1, 'Your cart is empty'),
+    // Pickup orders: pay online now, or cash at pickup.
+    paymentMethod: z.enum(['ONLINE', 'CASH']).default('ONLINE'),
+    note: z.string().max(500).optional(),
+  }),
+});

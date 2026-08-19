@@ -25,6 +25,8 @@ export const listProviderSchema = z.object({
     subcategorySlug: z.string().optional(),
     city: z.string().optional(),
     search: z.string().optional(),
+    // Filter by business kind: services (appointments) or stores (products).
+    type: z.enum(['SERVICE', 'STORE']).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),

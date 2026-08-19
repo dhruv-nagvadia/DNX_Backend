@@ -37,6 +37,9 @@ providerRoutes.post('/auth/login', validate(loginSchema), authController.loginPr
 // Everything below requires a logged-in PROVIDER.
 providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
 
+// Single-image upload (product photos) — returns the hosted URL.
+providerRoutes.post('/uploads/image', imageUpload.single('image'), providerController.uploadImage);
+
 // Home dashboard — bookings across every owned business
 providerRoutes.get('/bookings', providerController.listAllBookings);
 
