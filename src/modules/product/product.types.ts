@@ -1,11 +1,16 @@
+export type Measure = 'weight' | 'volume' | 'count';
+
 export interface CreateProductInput {
   name: string;
   description?: string;
-  // Price in major units (e.g. rupees); stored as minor units (paise).
+  measure?: Measure;
+  // Price in major units (rupees) for `priceQty` base units.
   price: number;
-  unit?: string;
-  section?: string;
+  priceQty?: number;
+  // All quantities are in base units (g / ml / piece).
   stockQty?: number;
+  stepQty?: number;
+  section?: string;
   imageUrl?: string;
   currency?: string;
 }
@@ -13,10 +18,12 @@ export interface CreateProductInput {
 export interface UpdateProductInput {
   name?: string;
   description?: string;
+  measure?: Measure;
   price?: number;
-  unit?: string;
-  section?: string;
+  priceQty?: number;
   stockQty?: number;
+  stepQty?: number;
+  section?: string;
   imageUrl?: string;
   isActive?: boolean;
 }

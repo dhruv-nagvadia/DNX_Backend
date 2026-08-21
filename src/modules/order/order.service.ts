@@ -35,11 +35,26 @@ async function create(userId: string, input: CreateOrderInput) {
   const lines = input.items.map((i) => {
     const p = byId.get(i.productId);
     if (!p) throw ApiError.badRequest('A product in your cart is no longer available');
-    if (p.stockQty < i.quantity) {
+    const amount = i.quantity; // base units (e.g. grams)
+    if (amount <= 0) throw ApiError.badRequest('Invalid quantity');
+    if (amount < p.stepQty) {
+      throw ApiError.badRequest(`Minimum for ${p.name} is ${p.stepQty} ${p.unit}`);
+    }
+    if (p.stockQty < amount) {
       throw ApiError.badRequest(`Only ${p.stockQty} ${p.unit} of ${p.name} left in stock`);
     }
-    total += p.priceMinor * i.quantity;
-    return { productId: p.id, name: p.name, priceMinor: p.priceMinor, unit: p.unit, quantity: i.quantity };
+    // Price scales with the amount: (amount / priceQty) × priceMinor.
+    const lineTotal = Math.round((amount / p.priceQty) * p.priceMinor);
+    total += lineTotal;
+    return {
+      productId: p.id,
+      name: p.name,
+      measure: p.measure,
+      priceMinor: p.priceMinor,
+      priceQty: p.priceQty,
+      unit: p.unit,
+      quantity: amount,
+    };
   });
 
   const method = input.paymentMethod ?? 'ONLINE';
@@ -62,7 +77,9 @@ async function create(userId: string, input: CreateOrderInput) {
           create: lines.map((l) => ({
             productId: l.productId,
             name: l.name,
+            measure: l.measure,
             priceMinor: l.priceMinor,
+            priceQty: l.priceQty,
             unit: l.unit,
             quantity: l.quantity,
           })),

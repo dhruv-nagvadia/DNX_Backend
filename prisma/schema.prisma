@@ -336,13 +336,20 @@ model Product {
 
   name        String
   description String?
-  // Price for one `unit` (paise). e.g. ₹60 / kg → priceMinor = 6000, unit = "kg".
+  // What the product is measured in: "weight" (base gram), "volume" (base ml)
+  // or "count" (base piece). All quantities below are in that base unit.
+  measure     String   @default("count")
+  // Price (paise) for `priceQty` base units. e.g. ₹200 / 100 g →
+  // priceMinor = 20000, priceQty = 100, measure = "weight".
   priceMinor  Int
+  priceQty    Float    @default(1)
   currency    String   @default("INR")
-  // Selling/stock unit: "kg", "g", "litre", "ml", "piece", "dozen"…
+  // A base-unit label kept for display/back-compat ("g", "ml", "piece"…).
   unit        String   @default("piece")
-  // Tracked inventory in `unit` (fractional allowed, e.g. 2.5 kg).
+  // Tracked inventory in base units (e.g. 15 kg → 15000).
   stockQty    Float    @default(0)
+  // Minimum order + step increment, in base units (e.g. 100 g → 100).
+  stepQty     Float    @default(1)
   // Storefront grouping / aisle, e.g. "Grains", "Toiletries" (for section rows).
   section     String?
   imageUrl    String?
@@ -395,9 +402,12 @@ model OrderItem {
   product    Product? @relation(fields: [productId], references: [id])
 
   name       String
-  priceMinor Int
+  measure    String   @default("count")
+  priceMinor Int      // price for `priceQty` base units
+  priceQty   Float    @default(1)
   unit       String   @default("piece")
-  quantity   Int
+  // Amount ordered, in base units (e.g. 300 g → 300).
+  quantity   Float
 
   @@index([orderId])
 }

@@ -18,6 +18,10 @@ async function assertProductInProvider(providerId: string, productId: string) {
 
 const toMinor = (price: number) => Math.round(price * 100);
 
+/** Base unit label for a measure (weight→g, volume→ml, count→piece). */
+const baseUnit = (measure?: string) =>
+  measure === 'weight' ? 'g' : measure === 'volume' ? 'ml' : 'piece';
+
 /** All products for an owned business (owner view — includes inactive). */
 async function listForOwner(userId: string, providerId: string) {
   await assertOwnedProvider(userId, providerId);
@@ -34,11 +38,14 @@ async function create(userId: string, providerId: string, input: CreateProductIn
       providerId,
       name: input.name,
       description: input.description,
+      measure: input.measure ?? 'count',
       priceMinor: toMinor(input.price),
+      priceQty: input.priceQty ?? 1,
       currency: input.currency ?? 'INR',
-      unit: input.unit ?? 'piece',
+      unit: baseUnit(input.measure),
       section: input.section,
       stockQty: input.stockQty ?? 0,
+      stepQty: input.stepQty ?? 1,
       imageUrl: input.imageUrl,
     },
   });
@@ -57,10 +64,13 @@ async function update(
     data: {
       name: input.name,
       description: input.description,
+      measure: input.measure,
       priceMinor: input.price !== undefined ? toMinor(input.price) : undefined,
-      unit: input.unit,
+      priceQty: input.priceQty,
+      unit: input.measure ? baseUnit(input.measure) : undefined,
       section: input.section,
       stockQty: input.stockQty,
+      stepQty: input.stepQty,
       imageUrl: input.imageUrl,
       isActive: input.isActive,
     },

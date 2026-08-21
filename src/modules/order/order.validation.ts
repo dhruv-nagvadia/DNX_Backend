@@ -7,7 +7,8 @@ export const createOrderSchema = z.object({
       .array(
         z.object({
           productId: z.string().min(1),
-          quantity: z.coerce.number().int().min(1),
+          // Amount in base units (e.g. grams). Fractional allowed.
+          quantity: z.coerce.number().positive(),
         }),
       )
       .min(1, 'Your cart is empty'),
