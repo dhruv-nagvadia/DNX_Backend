@@ -88,6 +88,8 @@ model User {
   bookings  Booking[]
   // Product orders this user has placed as a customer.
   orders    Order[]
+  // The user's saved shopping cart (persists across sessions).
+  cartItems CartItem[]
   // Reviews this user has written.
   reviews   Review[]
   // Personal reminders (renewals, follow-ups, etc.).
@@ -358,8 +360,24 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   orderItems  OrderItem[]
+  cartItems   CartItem[]
 
   @@index([providerId])
+}
+
+// A line in a customer's persistent shopping cart. quantity is in base units.
+model CartItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId])
+  @@index([userId])
 }
 
 // A customer's product order from a STORE business (pickup). No time slot —

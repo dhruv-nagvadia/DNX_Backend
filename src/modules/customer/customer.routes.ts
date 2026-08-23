@@ -4,6 +4,7 @@ import { customerController } from './customer.controller';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
 import { orderRoutes } from '@/modules/order/order.routes';
+import { cartRoutes } from '@/modules/cart/cart.routes';
 import { reminderRoutes } from '@/modules/reminder/reminder.routes';
 import { paymentRoutes } from '@/modules/payment/payment.routes';
 import { reviewController } from '@/modules/review/review.controller';
@@ -31,6 +32,9 @@ customerRoutes.use('/bookings', bookingRoutes);
 
 // Product orders (auth handled inside the order router)
 customerRoutes.use('/orders', orderRoutes);
+
+// Persistent cart (auth handled inside the cart router)
+customerRoutes.use('/cart', cartRoutes);
 
 // Reminders (auth handled inside the reminder router)
 customerRoutes.use('/reminders', reminderRoutes);

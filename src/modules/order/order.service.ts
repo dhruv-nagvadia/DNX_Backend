@@ -95,6 +95,9 @@ async function create(userId: string, input: CreateOrderInput) {
       });
     }
 
+    // The ordered items leave the cart.
+    await tx.cartItem.deleteMany({ where: { userId, productId: { in: productIds } } });
+
     return { order, simulated: paidNow };
   });
 }
