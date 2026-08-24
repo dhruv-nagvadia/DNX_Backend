@@ -16,4 +16,29 @@ const listMine = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, orders);
 });
 
-export const orderController = { create, listMine };
+const cancel = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const order = await orderService.cancelByCustomer(req.user.sub, req.params.id);
+  sendSuccess(res, order, 'Order cancelled');
+});
+
+// ── Provider order management ────────────────────────────────────────────────
+const listForProvider = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const orders = await orderService.listForOwner(req.user.sub);
+  sendSuccess(res, orders);
+});
+
+const updateStatus = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const order = await orderService.updateStatus(req.user.sub, req.params.orderId, req.body.status);
+  sendSuccess(res, order, 'Order updated');
+});
+
+const collect = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const order = await orderService.collectPayment(req.user.sub, req.params.orderId);
+  sendSuccess(res, order, 'Payment collected');
+});
+
+export const orderController = { create, listMine, cancel, listForProvider, updateStatus, collect };

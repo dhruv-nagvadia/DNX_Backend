@@ -6,6 +6,6 @@ export interface OrderItemInput {
 export interface CreateOrderInput {
   providerId: string;
   items: OrderItemInput[];
-  paymentMethod?: 'ONLINE' | 'CASH';
+  paymentMethod?: 'ONLINE' | 'CASH' | 'PARTIAL';
   note?: string;
 }

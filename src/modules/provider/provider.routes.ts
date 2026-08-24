@@ -15,6 +15,8 @@ import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
 import { productController } from '@/modules/product/product.controller';
 import { createProductSchema, updateProductSchema } from '@/modules/product/product.validation';
+import { orderController } from '@/modules/order/order.controller';
+import { updateOrderStatusSchema } from '@/modules/order/order.validation';
 import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
 import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
@@ -42,6 +44,15 @@ providerRoutes.post('/uploads/image', imageUpload.single('image'), providerContr
 
 // Home dashboard — bookings across every owned business
 providerRoutes.get('/bookings', providerController.listAllBookings);
+
+// Store orders across every owned business (management)
+providerRoutes.get('/orders', orderController.listForProvider);
+providerRoutes.patch(
+  '/orders/:orderId',
+  validate(updateOrderStatusSchema),
+  orderController.updateStatus,
+);
+providerRoutes.post('/orders/:orderId/collect', orderController.collect);
 
 // Businesses
 providerRoutes.get('/businesses', providerController.listMine);

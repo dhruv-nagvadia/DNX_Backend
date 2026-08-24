@@ -14,3 +14,4 @@ orderRoutes.use(requireAuth, requireRole(Role.USER));
 
 orderRoutes.post('/', validate(createOrderSchema), orderController.create);
 orderRoutes.get('/mine', orderController.listMine);
+orderRoutes.patch('/:id/cancel', orderController.cancel);

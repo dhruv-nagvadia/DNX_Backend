@@ -1,7 +1,16 @@
 import { BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
+import { notificationService } from '@/modules/notification/notification.service';
 import { CreateBookingInput } from './booking.types';
+
+// Customer-facing copy for the statuses a provider can move a booking to.
+const BOOKING_STATUS_COPY: Partial<Record<BookingStatus, string>> = {
+  CONFIRMED: 'Your booking has been confirmed',
+  COMPLETED: 'Your booking is complete — thank you!',
+  CANCELLED: 'Your booking was cancelled',
+  NO_SHOW: 'You were marked as a no-show',
+};
 
 // What the customer app sees for each booking.
 const bookingSelect = {
@@ -17,7 +26,7 @@ const bookingSelect = {
   cancelReason: true,
   service: { select: { id: true, name: true, durationMin: true } },
   provider: {
-    select: { id: true, businessName: true, category: { select: { slug: true, name: true } } },
+    select: { id: true, businessName: true, images: true, category: { select: { slug: true, name: true } } },
   },
   review: { select: { id: true, rating: true } },
 } satisfies Prisma.BookingSelect;
@@ -66,8 +75,9 @@ async function create(userId: string, input: CreateBookingInput) {
 
   const end = new Date(start.getTime() + service.durationMin * 60_000);
 
+  let booking;
   try {
-    return await prisma.booking.create({
+    booking = await prisma.booking.create({
       data: {
         userId,
         providerId: input.providerId,
@@ -89,6 +99,24 @@ async function create(userId: string, input: CreateBookingInput) {
     }
     throw err;
   }
+
+  // Notify the business owner about the new booking request.
+  const owner = await prisma.provider.findUnique({
+    where: { id: input.providerId },
+    select: { userId: true },
+  });
+  if (owner) {
+    await notificationService.notify({
+      userId: owner.userId,
+      type: 'BOOKING_PLACED',
+      title: 'New booking',
+      body: `New booking request for ${service.name}`,
+      entityType: 'BOOKING',
+      entityId: booking.id,
+    });
+  }
+
+  return booking;
 }
 
 /** The logged-in customer's bookings (newest first). */
@@ -147,12 +175,27 @@ async function updateStatus(
     );
   }
 
-  return prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id: bookingId },
     // Only store a reason when cancelling.
     data: { status, cancelReason: status === 'CANCELLED' ? reason ?? null : undefined },
     select: providerBookingSelect,
   });
+
+  // Keep the customer posted on their booking.
+  const copy = BOOKING_STATUS_COPY[status];
+  if (copy) {
+    await notificationService.notify({
+      userId: booking.userId,
+      type: 'BOOKING_STATUS',
+      title: 'Booking update',
+      body: status === 'CANCELLED' && reason ? `${copy}: ${reason}` : copy,
+      entityType: 'BOOKING',
+      entityId: bookingId,
+    });
+  }
+
+  return updated;
 }
 
 /** Customer cancels their own upcoming booking. */
@@ -162,11 +205,29 @@ async function cancelByCustomer(userId: string, bookingId: string) {
   if (booking.status !== 'PENDING' && booking.status !== 'CONFIRMED') {
     throw ApiError.badRequest('This booking can no longer be cancelled.');
   }
-  return prisma.booking.update({
+  const updated = await prisma.booking.update({
     where: { id: bookingId },
     data: { status: 'CANCELLED' },
     select: bookingSelect,
   });
+
+  // Let the business owner know the customer cancelled.
+  const owner = await prisma.provider.findUnique({
+    where: { id: booking.providerId },
+    select: { userId: true },
+  });
+  if (owner) {
+    await notificationService.notify({
+      userId: owner.userId,
+      type: 'BOOKING_CANCELLED',
+      title: 'Booking cancelled',
+      body: 'A customer cancelled their booking',
+      entityType: 'BOOKING',
+      entityId: bookingId,
+    });
+  }
+
+  return updated;
 }
 
 /** Customer moves their booking to a new time (same service). */

@@ -21,8 +21,14 @@ export const imageUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    // Accept every image format (jpeg, png, webp, gif, bmp, svg, heic, avif, tiff, ...).
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(ApiError.badRequest('Only image files are allowed'));
+    // SVG isn't renderable by React Native's <Image>, so block it (it would show
+    // blank in the app). Accept every other image format (jpeg, png, webp, …).
+    if (file.mimetype === 'image/svg+xml') {
+      cb(ApiError.badRequest('SVG images aren’t supported — please upload a JPG, PNG or WEBP.'));
+    } else if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(ApiError.badRequest('Only image files are allowed'));
+    }
   },
 });

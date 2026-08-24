@@ -1,16 +1,60 @@
-import { Prisma } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { isRazorpayConfigured } from '@/lib/razorpay';
+import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { CreateOrderInput } from './order.types';
 
-// What the customer app sees for each order.
+// Customer-facing copy for each order status the provider can move an order to.
+const ORDER_STATUS_COPY: Record<OrderStatus, string> = {
+  PENDING: 'Your order was received',
+  CONFIRMED: 'Your order has been confirmed',
+  READY: 'Your order is ready for pickup',
+  COMPLETED: 'Your order is complete — thank you!',
+  CANCELLED: 'Your order was cancelled',
+};
+
+// What the customer app sees for each order (with business + product images).
 const orderInclude = {
-  items: true,
+  items: { include: { product: { select: { imageUrl: true } } } },
   provider: {
-    select: { id: true, businessName: true, phone: true, category: { select: { slug: true, name: true } } },
+    select: {
+      id: true,
+      businessName: true,
+      phone: true,
+      images: true,
+      category: { select: { slug: true, name: true } },
+    },
   },
 } satisfies Prisma.OrderInclude;
+
+// What the provider dashboard sees for each order (adds the customer).
+const providerOrderInclude = {
+  items: true,
+  user: { select: { fullName: true, phone: true } },
+  provider: { select: { id: true, businessName: true } },
+} satisfies Prisma.OrderInclude;
+
+// Allowed provider-driven order transitions.
+const PROVIDER_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['READY', 'CANCELLED'],
+  READY: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+/** Ops that put an order's items back into stock (used when cancelling). */
+function restoreStockOps(items: { productId: string | null; quantity: number }[]) {
+  return items
+    .filter((i): i is { productId: string; quantity: number } => !!i.productId)
+    .map((i) =>
+      prisma.product.update({
+        where: { id: i.productId },
+        data: { stockQty: { increment: i.quantity } },
+      }),
+    );
+}
 
 /**
  * Places a pickup order for a STORE business: validates stock, snapshots the
@@ -58,21 +102,38 @@ async function create(userId: string, input: CreateOrderInput) {
   });
 
   const method = input.paymentMethod ?? 'ONLINE';
-  // Test mode: online payments settle instantly (no live keys to redirect to).
-  const paidNow = method === 'ONLINE' && !isRazorpayConfigured();
+  // Orders have no live Razorpay link yet, so online/partial only settle in test
+  // mode. PARTIAL pays a deposit (provider's %, default 20) now; rest at pickup.
+  const configured = isRazorpayConfigured();
+  const depositPct = method === 'PARTIAL' ? provider.depositPercent || 20 : 0;
+  const depositMinor = Math.max(0, Math.round((total * depositPct) / 100));
 
-  return prisma.$transaction(async (tx) => {
+  let amountPaidMinor = 0;
+  let paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' = 'PENDING';
+  let status: 'PENDING' | 'CONFIRMED' = 'PENDING';
+  if (!configured && method === 'ONLINE') {
+    amountPaidMinor = total;
+    paymentStatus = 'PAID';
+    status = 'CONFIRMED';
+  } else if (!configured && method === 'PARTIAL') {
+    amountPaidMinor = depositMinor;
+    paymentStatus = 'PARTIAL';
+    status = 'CONFIRMED';
+  }
+  const simulated = !configured && (method === 'ONLINE' || method === 'PARTIAL');
+
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
       data: {
         userId,
         providerId: provider.id,
-        status: paidNow ? 'CONFIRMED' : 'PENDING',
+        status,
         note: input.note,
         amountMinor: total,
-        amountPaidMinor: paidNow ? total : 0,
+        amountPaidMinor,
         currency: 'INR',
         paymentMethod: method,
-        paymentStatus: paidNow ? 'PAID' : 'PENDING',
+        paymentStatus,
         items: {
           create: lines.map((l) => ({
             productId: l.productId,
@@ -98,8 +159,20 @@ async function create(userId: string, input: CreateOrderInput) {
     // The ordered items leave the cart.
     await tx.cartItem.deleteMany({ where: { userId, productId: { in: productIds } } });
 
-    return { order, simulated: paidNow };
+    return { order, simulated };
   });
+
+  // Tell the store owner a new order came in.
+  await notificationService.notify({
+    userId: provider.userId,
+    type: 'ORDER_PLACED',
+    title: 'New order',
+    body: `You have a new order for ${formatINR(total)}`,
+    entityType: 'ORDER',
+    entityId: result.order.id,
+  });
+
+  return result;
 }
 
 /** The logged-in customer's orders (newest first). */
@@ -111,4 +184,104 @@ async function listMine(userId: string) {
   });
 }
 
-export const orderService = { create, listMine };
+/** Customer cancels their own order (while still cancellable); restores stock. */
+async function cancelByCustomer(userId: string, orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: true, provider: { select: { userId: true } } },
+  });
+  if (!order || order.userId !== userId) throw ApiError.notFound('Order not found');
+  if (order.status !== 'PENDING' && order.status !== 'CONFIRMED') {
+    throw ApiError.badRequest('This order can no longer be cancelled.');
+  }
+  await prisma.$transaction([
+    ...restoreStockOps(order.items),
+    prisma.order.update({ where: { id: orderId }, data: { status: 'CANCELLED' } }),
+  ]);
+
+  // Let the store owner know the customer cancelled.
+  await notificationService.notify({
+    userId: order.provider.userId,
+    type: 'ORDER_CANCELLED',
+    title: 'Order cancelled',
+    body: `A customer cancelled their ${formatINR(order.amountMinor)} order`,
+    entityType: 'ORDER',
+    entityId: orderId,
+  });
+
+  return prisma.order.findUnique({ where: { id: orderId }, include: orderInclude });
+}
+
+// ── Provider side ────────────────────────────────────────────────────────────
+
+/** All orders across every business owned by this provider (management view). */
+async function listForOwner(userId: string) {
+  return prisma.order.findMany({
+    where: { provider: { userId } },
+    orderBy: { createdAt: 'desc' },
+    include: providerOrderInclude,
+  });
+}
+
+/** Loads an order with items, enforcing provider ownership. */
+async function getOwnedOrder(userId: string, orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: true, provider: { select: { userId: true } } },
+  });
+  if (!order || order.provider.userId !== userId) throw ApiError.notFound('Order not found');
+  return order;
+}
+
+/** Provider advances an order's status (confirm → ready → completed, or cancel). */
+async function updateStatus(userId: string, orderId: string, status: OrderStatus) {
+  const order = await getOwnedOrder(userId, orderId);
+  if (!PROVIDER_ORDER_TRANSITIONS[order.status].includes(status)) {
+    throw ApiError.badRequest(
+      `A ${order.status.toLowerCase()} order can't be marked ${status.toLowerCase()}.`,
+    );
+  }
+  if (status === 'CANCELLED') {
+    await prisma.$transaction([
+      ...restoreStockOps(order.items),
+      prisma.order.update({ where: { id: orderId }, data: { status } }),
+    ]);
+  } else {
+    await prisma.order.update({ where: { id: orderId }, data: { status } });
+  }
+
+  // Keep the customer posted on their order.
+  await notificationService.notify({
+    userId: order.userId,
+    type: 'ORDER_STATUS',
+    title: 'Order update',
+    body: ORDER_STATUS_COPY[status],
+    entityType: 'ORDER',
+    entityId: orderId,
+  });
+
+  return prisma.order.findUnique({ where: { id: orderId }, include: providerOrderInclude });
+}
+
+/** Provider records that a cash / unpaid order was paid in person. */
+async function collectPayment(userId: string, orderId: string) {
+  const order = await getOwnedOrder(userId, orderId);
+  if (order.status === 'CANCELLED') throw ApiError.badRequest('This order was cancelled');
+  if (order.paymentStatus === 'PAID' || order.amountPaidMinor >= order.amountMinor) {
+    throw ApiError.badRequest('This order is already paid');
+  }
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { amountPaidMinor: order.amountMinor, paymentStatus: 'PAID' },
+  });
+  return prisma.order.findUnique({ where: { id: orderId }, include: providerOrderInclude });
+}
+
+export const orderService = {
+  create,
+  listMine,
+  cancelByCustomer,
+  listForOwner,
+  updateStatus,
+  collectPayment,
+};

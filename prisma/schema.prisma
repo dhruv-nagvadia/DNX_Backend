@@ -36,6 +36,15 @@ enum ReminderRepeat {
   YEARLY
 }
 
+enum NotificationType {
+  ORDER_PLACED // provider: a customer placed an order
+  ORDER_STATUS // customer: their order's status changed
+  ORDER_CANCELLED // provider: a customer cancelled their order
+  BOOKING_PLACED // provider: a customer booked a service
+  BOOKING_STATUS // customer: their booking's status changed
+  BOOKING_CANCELLED // provider: a customer cancelled their booking
+}
+
 enum PaymentStatus {
   PENDING
   PARTIAL
@@ -94,6 +103,8 @@ model User {
   reviews   Review[]
   // Personal reminders (renewals, follow-ups, etc.).
   reminders Reminder[]
+  // In-app notifications addressed to this user (customer or provider).
+  notifications Notification[]
 
   // Accounts are per-audience: the same email can exist once as a customer
   // (USER) and once as a business (PROVIDER) — two independent accounts.
@@ -428,4 +439,26 @@ model OrderItem {
   quantity   Float
 
   @@index([orderId])
+}
+
+// An in-app notification for one user. Written on order/booking events and read
+// by both apps (provider web + customer mobile) via /notifications.
+model Notification {
+  id     String           @id @default(cuid())
+  userId String
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   NotificationType
+
+  title String
+  body  String
+
+  // Optional deep-link context so a tap can open the related record.
+  entityType String? // "ORDER" | "BOOKING"
+  entityId   String?
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }

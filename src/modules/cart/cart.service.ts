@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 const cartInclude = {
   product: {
-    include: { provider: { select: { id: true, businessName: true } } },
+    include: { provider: { select: { id: true, businessName: true, depositPercent: true } } },
   },
 } satisfies Prisma.CartItemInclude;
 
@@ -25,6 +25,7 @@ function toClientItem(row: CartRow) {
     stepQty: p.stepQty,
     stockQty: p.stockQty,
     imageUrl: p.imageUrl,
+    depositPercent: p.provider.depositPercent,
     quantity: Math.min(row.quantity, p.stockQty),
   };
 }
