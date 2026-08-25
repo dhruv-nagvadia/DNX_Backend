@@ -12,9 +12,35 @@ const create = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, review, 'Thanks for your review', 201);
 });
 
+/** Customer creates a review for their completed order (route: /customer/orders/:id/review). */
+const createForOrder = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const review = await reviewService.createForOrder(req.user.sub, req.params.id, req.body);
+  sendSuccess(res, review, 'Thanks for your review', 201);
+});
+
+/** Customer reviews one product in a completed order
+ *  (route: /customer/orders/:id/products/:productId/review). */
+const createForProduct = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const review = await reviewService.createForProduct(
+    req.user.sub,
+    req.params.id,
+    req.params.productId,
+    req.body,
+  );
+  sendSuccess(res, review, 'Thanks for your review', 201);
+});
+
 /** Public list of a provider's reviews (route: /customer/providers/:id/reviews). */
 const listPublic = asyncHandler(async (req: Request, res: Response) => {
   const reviews = await reviewService.listForProvider(req.params.id);
+  sendSuccess(res, reviews);
+});
+
+/** Public list of a product's reviews (route: /customer/products/:id/reviews). */
+const listProductReviews = asyncHandler(async (req: Request, res: Response) => {
+  const reviews = await reviewService.listForProduct(req.params.id);
   sendSuccess(res, reviews);
 });
 
@@ -26,4 +52,11 @@ const listForOwner = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, reviews);
 });
 
-export const reviewController = { create, listPublic, listForOwner };
+export const reviewController = {
+  create,
+  createForOrder,
+  createForProduct,
+  listPublic,
+  listProductReviews,
+  listForOwner,
+};

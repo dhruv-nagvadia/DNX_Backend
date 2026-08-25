@@ -22,5 +22,7 @@ export const createOrderSchema = z.object({
 export const updateOrderStatusSchema = z.object({
   body: z.object({
     status: z.enum(['CONFIRMED', 'READY', 'COMPLETED', 'CANCELLED']),
+    // Optional note shown to the customer when cancelling.
+    reason: z.string().max(500).optional(),
   }),
 });

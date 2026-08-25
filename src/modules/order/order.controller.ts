@@ -31,7 +31,12 @@ const listForProvider = asyncHandler(async (req: Request, res: Response) => {
 
 const updateStatus = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
-  const order = await orderService.updateStatus(req.user.sub, req.params.orderId, req.body.status);
+  const order = await orderService.updateStatus(
+    req.user.sub,
+    req.params.orderId,
+    req.body.status,
+    req.body.reason,
+  );
   sendSuccess(res, order, 'Order updated');
 });
 

@@ -101,6 +101,8 @@ model User {
   cartItems CartItem[]
   // Reviews this user has written.
   reviews   Review[]
+  // Per-product reviews this user has written.
+  productReviews ProductReview[]
   // Personal reminders (renewals, follow-ups, etc.).
   reminders Reminder[]
   // In-app notifications addressed to this user (customer or provider).
@@ -326,8 +328,11 @@ model Reminder {
 // A customer's review of a completed booking. One review per booking.
 model Review {
   id         String   @id @default(cuid())
-  bookingId  String   @unique
-  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // A review is tied to EITHER a completed booking (service) or order (store).
+  bookingId  String?  @unique
+  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  orderId    String?  @unique
+  order      Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id])
   providerId String
@@ -366,14 +371,36 @@ model Product {
   // Storefront grouping / aisle, e.g. "Grains", "Toiletries" (for section rows).
   section     String?
   imageUrl    String?
+  // Aggregated per-product rating (from customers who bought it).
+  ratingAvg   Float    @default(0)
+  ratingCount Int      @default(0)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   orderItems  OrderItem[]
   cartItems   CartItem[]
+  reviews     ProductReview[]
 
   @@index([providerId])
+}
+
+// A customer's review of one product they bought (one per product per order).
+model ProductReview {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  rating    Int // 1..5
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([orderId, productId])
+  @@index([productId])
+  @@index([userId])
 }
 
 // A line in a customer's persistent shopping cart. quantity is in base units.
@@ -402,6 +429,8 @@ model Order {
 
   status      OrderStatus @default(PENDING)
   note        String?
+  // Reason a provider gives when they cancel — shown to the customer.
+  cancelReason String?
 
   amountMinor     Int
   amountPaidMinor Int           @default(0)
@@ -415,6 +444,10 @@ model Order {
   updatedAt   DateTime    @updatedAt
 
   items       OrderItem[]
+  // The customer's review of this store order (once completed).
+  review      Review?
+  // Per-product reviews the customer left for items in this order.
+  productReviews ProductReview[]
 
   @@index([userId])
   @@index([providerId])

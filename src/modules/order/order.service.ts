@@ -26,6 +26,8 @@ const orderInclude = {
       category: { select: { slug: true, name: true } },
     },
   },
+  review: { select: { id: true, rating: true } },
+  productReviews: { select: { productId: true, rating: true } },
 } satisfies Prisma.OrderInclude;
 
 // What the provider dashboard sees for each order (adds the customer).
@@ -194,9 +196,16 @@ async function cancelByCustomer(userId: string, orderId: string) {
   if (order.status !== 'PENDING' && order.status !== 'CONFIRMED') {
     throw ApiError.badRequest('This order can no longer be cancelled.');
   }
+
+  // Any money already paid is refunded (simulated until Razorpay is live).
+  const refund = order.paymentStatus === 'REFUNDED' ? 0 : Math.max(0, order.amountPaidMinor);
+
   await prisma.$transaction([
     ...restoreStockOps(order.items),
-    prisma.order.update({ where: { id: orderId }, data: { status: 'CANCELLED' } }),
+    prisma.order.update({
+      where: { id: orderId },
+      data: { status: 'CANCELLED', ...(refund > 0 ? { paymentStatus: 'REFUNDED' as const } : {}) },
+    }),
   ]);
 
   // Let the store owner know the customer cancelled.
@@ -204,10 +213,24 @@ async function cancelByCustomer(userId: string, orderId: string) {
     userId: order.provider.userId,
     type: 'ORDER_CANCELLED',
     title: 'Order cancelled',
-    body: `A customer cancelled their ${formatINR(order.amountMinor)} order`,
+    body:
+      `A customer cancelled their ${formatINR(order.amountMinor)} order` +
+      (refund > 0 ? ` — ${formatINR(refund)} refunded` : ''),
     entityType: 'ORDER',
     entityId: orderId,
   });
+
+  // Confirm the refund to the customer.
+  if (refund > 0) {
+    await notificationService.notify({
+      userId,
+      type: 'ORDER_STATUS',
+      title: 'Refund issued',
+      body: `${formatINR(refund)} has been refunded for your cancelled order`,
+      entityType: 'ORDER',
+      entityId: orderId,
+    });
+  }
 
   return prisma.order.findUnique({ where: { id: orderId }, include: orderInclude });
 }
@@ -234,28 +257,52 @@ async function getOwnedOrder(userId: string, orderId: string) {
 }
 
 /** Provider advances an order's status (confirm → ready → completed, or cancel). */
-async function updateStatus(userId: string, orderId: string, status: OrderStatus) {
+async function updateStatus(
+  userId: string,
+  orderId: string,
+  status: OrderStatus,
+  reason?: string,
+) {
   const order = await getOwnedOrder(userId, orderId);
   if (!PROVIDER_ORDER_TRANSITIONS[order.status].includes(status)) {
     throw ApiError.badRequest(
       `A ${order.status.toLowerCase()} order can't be marked ${status.toLowerCase()}.`,
     );
   }
+  // Cancelling a paid order refunds what was paid (simulated until Razorpay is live).
+  const refund =
+    status === 'CANCELLED' && order.paymentStatus !== 'REFUNDED'
+      ? Math.max(0, order.amountPaidMinor)
+      : 0;
+  const cancelReason = status === 'CANCELLED' ? reason?.trim() || null : undefined;
+
   if (status === 'CANCELLED') {
     await prisma.$transaction([
       ...restoreStockOps(order.items),
-      prisma.order.update({ where: { id: orderId }, data: { status } }),
+      prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status,
+          cancelReason,
+          ...(refund > 0 ? { paymentStatus: 'REFUNDED' as const } : {}),
+        },
+      }),
     ]);
   } else {
     await prisma.order.update({ where: { id: orderId }, data: { status } });
   }
 
-  // Keep the customer posted on their order.
+  // Keep the customer posted on their order (mention the refund / reason when cancelling).
+  let body = ORDER_STATUS_COPY[status];
+  if (status === 'CANCELLED') {
+    body = refund > 0 ? `Your order was cancelled — ${formatINR(refund)} will be refunded` : body;
+    if (cancelReason) body += `: ${cancelReason}`;
+  }
   await notificationService.notify({
     userId: order.userId,
     type: 'ORDER_STATUS',
     title: 'Order update',
-    body: ORDER_STATUS_COPY[status],
+    body,
     entityType: 'ORDER',
     entityId: orderId,
   });
