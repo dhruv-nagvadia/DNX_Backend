@@ -34,6 +34,7 @@ async function list(query: ListProviderQuery) {
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
   if (query.type) where.type = query.type;
   if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
+  if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) {
     where.OR = [
       { businessName: { contains: query.search, mode: 'insensitive' } },
@@ -41,13 +42,21 @@ async function list(query: ListProviderQuery) {
     ];
   }
 
+  // Ordering: highest rated (default), most reviewed, or newest.
+  const orderBy: Prisma.ProviderOrderByWithRelationInput[] =
+    query.sort === 'reviews'
+      ? [{ ratingCount: 'desc' }, { ratingAvg: 'desc' }]
+      : query.sort === 'newest'
+        ? [{ createdAt: 'desc' }]
+        : [{ ratingAvg: 'desc' }, { ratingCount: 'desc' }];
+
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([
     prisma.provider.findMany({
       where,
       skip,
       take: query.limit,
-      orderBy: [{ ratingAvg: 'desc' }, { createdAt: 'desc' }],
+      orderBy,
       include: publicInclude,
     }),
     prisma.provider.count({ where }),

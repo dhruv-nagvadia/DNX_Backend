@@ -15,12 +15,18 @@ export interface CreateProviderInput {
   depositPercent?: number;
 }
 
+export type ProviderSort = 'rating' | 'reviews' | 'newest';
+
 export interface ListProviderQuery {
   categorySlug?: string;
   subcategorySlug?: string;
   city?: string;
   search?: string;
   type?: 'SERVICE' | 'STORE';
+  // Only businesses with at least this average rating.
+  minRating?: number;
+  // How to order the results (default: highest rated first).
+  sort?: ProviderSort;
   page: number;
   limit: number;
 }

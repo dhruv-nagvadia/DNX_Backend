@@ -7,6 +7,8 @@ export const createBookingSchema = z.object({
     startTime: z.string().datetime({ message: 'startTime must be an ISO datetime' }),
     notes: z.string().max(500).optional(),
     paymentMethod: z.enum(['ONLINE', 'CASH', 'PARTIAL']).default('ONLINE'),
+    // Optional discount code applied at booking.
+    couponCode: z.string().trim().max(24).optional(),
   }),
 });
 

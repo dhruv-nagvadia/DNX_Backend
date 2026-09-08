@@ -1,6 +1,10 @@
 import { Router } from 'express';
+import { Role } from '@prisma/client';
 import { validate } from '@/middlewares/validate';
+import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
 import { customerController } from './customer.controller';
+import { couponController } from '@/modules/coupon/coupon.controller';
+import { validateCouponSchema } from '@/modules/coupon/coupon.validation';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
 import { orderRoutes } from '@/modules/order/order.routes';
@@ -25,6 +29,7 @@ customerRoutes.post('/auth/login', validate(loginSchema), authController.loginCu
 customerRoutes.get('/providers', validate(listProviderSchema), customerController.listProviders);
 customerRoutes.get('/providers/:id/booked-slots', customerController.bookedSlots);
 customerRoutes.get('/providers/:id/reviews', reviewController.listPublic);
+customerRoutes.get('/providers/:id/coupons', couponController.listPublic);
 customerRoutes.get('/products/:id/reviews', reviewController.listProductReviews);
 customerRoutes.get('/providers/:id', customerController.getProvider);
 
@@ -33,6 +38,15 @@ customerRoutes.use('/bookings', bookingRoutes);
 
 // Product orders (auth handled inside the order router)
 customerRoutes.use('/orders', orderRoutes);
+
+// Preview a coupon against a cart subtotal before ordering
+customerRoutes.post(
+  '/coupons/validate',
+  requireAuth,
+  requireRole(Role.USER),
+  validate(validateCouponSchema),
+  couponController.validateForCustomer,
+);
 
 // Persistent cart (auth handled inside the cart router)
 customerRoutes.use('/cart', cartRoutes);

@@ -27,6 +27,10 @@ export const listProviderSchema = z.object({
     search: z.string().optional(),
     // Filter by business kind: services (appointments) or stores (products).
     type: z.enum(['SERVICE', 'STORE']).optional(),
+    // Only businesses rated at least this (0–5).
+    minRating: z.coerce.number().min(0).max(5).optional(),
+    // Result ordering.
+    sort: z.enum(['rating', 'reviews', 'newest']).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),

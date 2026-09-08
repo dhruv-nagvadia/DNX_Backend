@@ -15,6 +15,8 @@ export const createOrderSchema = z.object({
     // Pickup orders: pay online now, a partial deposit, or cash at pickup.
     paymentMethod: z.enum(['ONLINE', 'CASH', 'PARTIAL']).default('ONLINE'),
     note: z.string().max(500).optional(),
+    // Optional discount code applied at checkout.
+    couponCode: z.string().trim().max(24).optional(),
   }),
 });
 

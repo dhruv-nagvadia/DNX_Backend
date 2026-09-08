@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { isRazorpayConfigured } from '@/lib/razorpay';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
+import { couponService } from '@/modules/coupon/coupon.service';
 import { CreateOrderInput } from './order.types';
 
 // Customer-facing copy for each order status the provider can move an order to.
@@ -103,6 +104,27 @@ async function create(userId: string, input: CreateOrderInput) {
     };
   });
 
+  // Apply a coupon (if any) to the subtotal; the discount comes off the total.
+  const subtotal = total;
+  let discountMinor = 0;
+  let appliedCoupon: { id: string; code: string } | null = null;
+  if (input.couponCode) {
+    const coupon = await prisma.coupon.findUnique({
+      where: {
+        providerId_code: {
+          providerId: provider.id,
+          code: couponService.normalizeCode(input.couponCode),
+        },
+      },
+    });
+    if (!coupon) throw ApiError.badRequest('That code isn’t valid for this store.');
+    const evaluated = couponService.evaluateCoupon(coupon, subtotal);
+    if (evaluated.error) throw ApiError.badRequest(evaluated.error);
+    discountMinor = evaluated.discountMinor;
+    appliedCoupon = { id: coupon.id, code: coupon.code };
+  }
+  total = subtotal - discountMinor;
+
   const method = input.paymentMethod ?? 'ONLINE';
   // Orders have no live Razorpay link yet, so online/partial only settle in test
   // mode. PARTIAL pays a deposit (provider's %, default 20) now; rest at pickup.
@@ -132,6 +154,8 @@ async function create(userId: string, input: CreateOrderInput) {
         status,
         note: input.note,
         amountMinor: total,
+        discountMinor,
+        couponCode: appliedCoupon?.code ?? null,
         amountPaidMinor,
         currency: 'INR',
         paymentMethod: method,
@@ -160,6 +184,14 @@ async function create(userId: string, input: CreateOrderInput) {
 
     // The ordered items leave the cart.
     await tx.cartItem.deleteMany({ where: { userId, productId: { in: productIds } } });
+
+    // Count the coupon redemption.
+    if (appliedCoupon) {
+      await tx.coupon.update({
+        where: { id: appliedCoupon.id },
+        data: { usedCount: { increment: 1 } },
+      });
+    }
 
     return { order, simulated };
   });

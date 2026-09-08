@@ -45,6 +45,11 @@ enum NotificationType {
   BOOKING_CANCELLED // provider: a customer cancelled their booking
 }
 
+enum DiscountType {
+  PERCENT // discountValue is a percentage (1–100)
+  FLAT // discountValue is a fixed amount in minor units (paise)
+}
+
 enum PaymentStatus {
   PENDING
   PARTIAL
@@ -200,6 +205,8 @@ model Provider {
   // Catalog + orders (only used when type = STORE).
   products      Product[]
   orders        Order[]
+  // Discount codes this business offers.
+  coupons       Coupon[]
 
   @@index([userId])
   @@index([categoryId])
@@ -278,6 +285,10 @@ model Booking {
   notes       String?
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
+
+  // Coupon applied at booking (snapshotted). amountMinor is the final total.
+  discountMinor Int    @default(0)
+  couponCode    String?
 
   // Payment (Razorpay).
   amountMinor     Int?
@@ -385,6 +396,37 @@ model Product {
   @@index([providerId])
 }
 
+// A discount code a STORE business offers customers at checkout.
+model Coupon {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // Code the customer types (case-insensitive; unique within the business).
+  code        String
+  description String?
+
+  discountType  DiscountType
+  // Percent (1–100) when PERCENT, else a flat amount in minor units (paise).
+  discountValue Int
+  // Minimum order subtotal (minor units) required to use the coupon.
+  minOrderMinor Int  @default(0)
+  // Optional cap on a percentage discount (minor units).
+  maxDiscountMinor Int?
+
+  expiresAt  DateTime?
+  // Optional total-redemption cap across all customers.
+  usageLimit Int?
+  usedCount  Int      @default(0)
+
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, code])
+  @@index([providerId])
+}
+
 // A customer's review of one product they bought (one per product per order).
 model ProductReview {
   id        String   @id @default(cuid())
@@ -431,6 +473,10 @@ model Order {
   note        String?
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
+
+  // Coupon applied at checkout (snapshotted). amountMinor is the final total.
+  discountMinor Int    @default(0)
+  couponCode    String?
 
   amountMinor     Int
   amountPaidMinor Int           @default(0)

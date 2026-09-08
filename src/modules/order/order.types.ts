@@ -8,4 +8,5 @@ export interface CreateOrderInput {
   items: OrderItemInput[];
   paymentMethod?: 'ONLINE' | 'CASH' | 'PARTIAL';
   note?: string;
+  couponCode?: string;
 }

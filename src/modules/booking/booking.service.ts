@@ -2,6 +2,7 @@ import { BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { notificationService } from '@/modules/notification/notification.service';
+import { couponService } from '@/modules/coupon/coupon.service';
 import { CreateBookingInput } from './booking.types';
 
 // Customer-facing copy for the statuses a provider can move a booking to.
@@ -19,6 +20,8 @@ const bookingSelect = {
   startTime: true,
   endTime: true,
   amountMinor: true,
+  discountMinor: true,
+  couponCode: true,
   amountPaidMinor: true,
   currency: true,
   paymentMethod: true,
@@ -75,22 +78,54 @@ async function create(userId: string, input: CreateBookingInput) {
 
   const end = new Date(start.getTime() + service.durationMin * 60_000);
 
+  // Apply a coupon (if any) to the service price; the discount comes off the total.
+  const subtotal = service.priceMinor;
+  let discountMinor = 0;
+  let appliedCoupon: { id: string; code: string } | null = null;
+  if (input.couponCode) {
+    const coupon = await prisma.coupon.findUnique({
+      where: {
+        providerId_code: {
+          providerId: input.providerId,
+          code: couponService.normalizeCode(input.couponCode),
+        },
+      },
+    });
+    if (!coupon) throw ApiError.badRequest('That code isn’t valid for this business.');
+    const evaluated = couponService.evaluateCoupon(coupon, subtotal);
+    if (evaluated.error) throw ApiError.badRequest(evaluated.error);
+    discountMinor = evaluated.discountMinor;
+    appliedCoupon = { id: coupon.id, code: coupon.code };
+  }
+  const total = subtotal - discountMinor;
+
   let booking;
   try {
-    booking = await prisma.booking.create({
-      data: {
-        userId,
-        providerId: input.providerId,
-        serviceId: service.id,
-        startTime: start,
-        endTime: end,
-        status: 'PENDING',
-        notes: input.notes,
-        amountMinor: service.priceMinor,
-        currency: service.currency,
-        paymentMethod: input.paymentMethod ?? 'ONLINE',
-      },
-      select: bookingSelect,
+    booking = await prisma.$transaction(async (tx) => {
+      const created = await tx.booking.create({
+        data: {
+          userId,
+          providerId: input.providerId,
+          serviceId: service.id,
+          startTime: start,
+          endTime: end,
+          status: 'PENDING',
+          notes: input.notes,
+          amountMinor: total,
+          discountMinor,
+          couponCode: appliedCoupon?.code ?? null,
+          currency: service.currency,
+          paymentMethod: input.paymentMethod ?? 'ONLINE',
+        },
+        select: bookingSelect,
+      });
+      if (appliedCoupon) {
+        await tx.coupon.update({
+          where: { id: appliedCoupon.id },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+      return created;
     });
   } catch (err) {
     // @@unique([providerId, startTime]) → someone grabbed this slot first.

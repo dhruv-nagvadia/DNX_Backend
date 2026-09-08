@@ -19,6 +19,8 @@ import { orderController } from '@/modules/order/order.controller';
 import { updateOrderStatusSchema } from '@/modules/order/order.validation';
 import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
 import { reviewController } from '@/modules/review/review.controller';
+import { couponController } from '@/modules/coupon/coupon.controller';
+import { createCouponSchema, updateCouponSchema } from '@/modules/coupon/coupon.validation';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
 
@@ -119,3 +121,13 @@ providerRoutes.patch(
   productController.update,
 );
 providerRoutes.delete('/businesses/:id/products/:productId', productController.remove);
+
+// Discount coupons within a business
+providerRoutes.get('/businesses/:id/coupons', couponController.list);
+providerRoutes.post('/businesses/:id/coupons', validate(createCouponSchema), couponController.create);
+providerRoutes.patch(
+  '/businesses/:id/coupons/:couponId',
+  validate(updateCouponSchema),
+  couponController.update,
+);
+providerRoutes.delete('/businesses/:id/coupons/:couponId', couponController.remove);
