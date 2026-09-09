@@ -36,8 +36,12 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
 
 // ── Customer (checkout) ───────────────────────────────────────────────────────
 const validateForCustomer = asyncHandler(async (req: Request, res: Response) => {
-  const { providerId, code, subtotalMinor } = req.body;
-  const result = await couponService.validateForCustomer(providerId, code, subtotalMinor);
+  const { providerId, code, subtotalMinor, serviceId, items } = req.body;
+  const result = await couponService.validateForCustomer(providerId, code, {
+    subtotalMinor,
+    serviceId,
+    items,
+  });
   sendSuccess(res, result, 'Coupon applied');
 });
 

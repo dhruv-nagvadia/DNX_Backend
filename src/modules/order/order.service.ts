@@ -101,6 +101,7 @@ async function create(userId: string, input: CreateOrderInput) {
       priceQty: p.priceQty,
       unit: p.unit,
       quantity: amount,
+      lineTotal,
     };
   });
 
@@ -118,7 +119,10 @@ async function create(userId: string, input: CreateOrderInput) {
       },
     });
     if (!coupon) throw ApiError.badRequest('That code isn’t valid for this store.');
-    const evaluated = couponService.evaluateCoupon(coupon, subtotal);
+    const evaluated = couponService.evaluateCoupon(coupon, {
+      subtotalMinor: subtotal,
+      items: lines.map((l) => ({ productId: l.productId, lineTotalMinor: l.lineTotal })),
+    });
     if (evaluated.error) throw ApiError.badRequest(evaluated.error);
     discountMinor = evaluated.discountMinor;
     appliedCoupon = { id: coupon.id, code: coupon.code };

@@ -26,7 +26,19 @@ const ownerInclude = {
   businessHours: { orderBy: { dayOfWeek: 'asc' } },
 } satisfies Prisma.ProviderInclude;
 
-/** Public listing with category/city/text filters + pagination. */
+/** Great-circle distance between two points, in km. */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+/** Public listing with category/city/postal/geo/text filters + pagination. */
 async function list(query: ListProviderQuery) {
   const where: Prisma.ProviderWhereInput = { isActive: true };
 
@@ -34,6 +46,7 @@ async function list(query: ListProviderQuery) {
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
   if (query.type) where.type = query.type;
   if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
+  if (query.postalCode) where.postalCode = { startsWith: query.postalCode };
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) {
     where.OR = [
@@ -41,8 +54,49 @@ async function list(query: ListProviderQuery) {
       { description: { contains: query.search, mode: 'insensitive' } },
     ];
   }
+  // Open right now, per the weekly schedule (date-specific overrides aren't
+  // considered here — this is a quick filter, not the booking-time check).
+  if (query.openNow) {
+    const now = new Date();
+    const hhmm = now.toTimeString().slice(0, 5); // "HH:MM", local server time
+    where.businessHours = {
+      some: { dayOfWeek: now.getDay(), isOpen: true, openTime: { lte: hhmm }, closeTime: { gte: hhmm } },
+    };
+  }
 
-  // Ordering: highest rated (default), most reviewed, or newest.
+  // "Nearest" needs the customer's coordinates — distance isn't a stored
+  // column, so it's computed and sorted in-app rather than by the database.
+  if (query.sort === 'nearest' && query.lat != null && query.lng != null) {
+    const all = await prisma.provider.findMany({ where, include: publicInclude });
+    const withDistance = all.map((p) => ({
+      ...p,
+      distanceKm:
+        p.latitude != null && p.longitude != null
+          ? Math.round(haversineKm(query.lat!, query.lng!, p.latitude, p.longitude) * 10) / 10
+          : null,
+    }));
+    // Businesses with no set location sort after those with a known distance.
+    withDistance.sort((a, b) => {
+      if (a.distanceKm == null && b.distanceKm == null) return b.ratingAvg - a.ratingAvg;
+      if (a.distanceKm == null) return 1;
+      if (b.distanceKm == null) return -1;
+      return a.distanceKm - b.distanceKm;
+    });
+    const total = withDistance.length;
+    const skip = (query.page - 1) * query.limit;
+    return {
+      items: withDistance.slice(skip, skip + query.limit),
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
+  // Ordering: highest rated (default), most reviewed, or newest. ('nearest'
+  // without coordinates falls back to this — there's nothing to sort by.)
   const orderBy: Prisma.ProviderOrderByWithRelationInput[] =
     query.sort === 'reviews'
       ? [{ ratingCount: 'desc' }, { ratingAvg: 'desc' }]

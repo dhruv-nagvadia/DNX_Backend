@@ -19,6 +19,7 @@ import { orderController } from '@/modules/order/order.controller';
 import { updateOrderStatusSchema } from '@/modules/order/order.validation';
 import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
 import { reviewController } from '@/modules/review/review.controller';
+import { replyToReviewSchema } from '@/modules/review/review.validation';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { createCouponSchema, updateCouponSchema } from '@/modules/coupon/coupon.validation';
 import { authController } from '@/modules/auth/auth.controller';
@@ -71,6 +72,16 @@ providerRoutes.post(
   providerController.collectBookingPayment,
 );
 providerRoutes.get('/businesses/:id/reviews', reviewController.listForOwner);
+providerRoutes.patch(
+  '/businesses/:id/reviews/:reviewId/reply',
+  validate(replyToReviewSchema),
+  reviewController.reply,
+);
+providerRoutes.patch(
+  '/businesses/:id/products/:productId/reviews/:reviewId/reply',
+  validate(replyToReviewSchema),
+  reviewController.replyToProduct,
+);
 providerRoutes.patch('/businesses/:id', validate(updateProviderSchema), providerController.update);
 providerRoutes.delete('/businesses/:id', providerController.remove);
 providerRoutes.put('/businesses/:id/hours', validate(setHoursSchema), providerController.setHours);

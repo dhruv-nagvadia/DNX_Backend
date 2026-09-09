@@ -52,6 +52,33 @@ const listForOwner = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, reviews);
 });
 
+/** Owner replies to a business review
+ *  (route: /provider/businesses/:id/reviews/:reviewId/reply). */
+const reply = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const review = await reviewService.reply(
+    req.user.sub,
+    req.params.id,
+    req.params.reviewId,
+    req.body.reply?.trim() || null,
+  );
+  sendSuccess(res, review, 'Reply saved');
+});
+
+/** Owner replies to a product review
+ *  (route: /provider/businesses/:id/products/:productId/reviews/:reviewId/reply). */
+const replyToProduct = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const review = await reviewService.replyToProduct(
+    req.user.sub,
+    req.params.id,
+    req.params.productId,
+    req.params.reviewId,
+    req.body.reply?.trim() || null,
+  );
+  sendSuccess(res, review, 'Reply saved');
+});
+
 export const reviewController = {
   create,
   createForOrder,
@@ -59,4 +86,6 @@ export const reviewController = {
   listPublic,
   listProductReviews,
   listForOwner,
+  reply,
+  replyToProduct,
 };

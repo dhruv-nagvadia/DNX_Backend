@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
+import { providerService } from '@/modules/provider/provider.service';
 
 interface CreateReviewInput {
   rating: number;
@@ -81,6 +82,28 @@ async function listForProvider(providerId: string) {
       id: true,
       rating: true,
       comment: true,
+      providerReply: true,
+      repliedAt: true,
+      createdAt: true,
+      user: { select: { fullName: true } },
+    },
+  });
+}
+
+/** Provider replies to (or edits/removes their reply on) a review of their business. */
+async function reply(userId: string, providerId: string, reviewId: string, text: string | null) {
+  await providerService.getMineById(userId, providerId); // ownership check
+  const review = await prisma.review.findFirst({ where: { id: reviewId, providerId } });
+  if (!review) throw ApiError.notFound('Review not found');
+  return prisma.review.update({
+    where: { id: reviewId },
+    data: { providerReply: text, repliedAt: text ? new Date() : null },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      providerReply: true,
+      repliedAt: true,
       createdAt: true,
       user: { select: { fullName: true } },
     },
@@ -143,6 +166,36 @@ async function listForProduct(productId: string) {
       id: true,
       rating: true,
       comment: true,
+      providerReply: true,
+      repliedAt: true,
+      createdAt: true,
+      user: { select: { fullName: true } },
+    },
+  });
+}
+
+/** Provider replies to (or edits/removes their reply on) a product review. */
+async function replyToProduct(
+  userId: string,
+  providerId: string,
+  productId: string,
+  reviewId: string,
+  text: string | null,
+) {
+  await providerService.getMineById(userId, providerId); // ownership check
+  const review = await prisma.productReview.findFirst({ where: { id: reviewId, productId } });
+  if (!review) throw ApiError.notFound('Review not found');
+  const product = await prisma.product.findFirst({ where: { id: productId, providerId } });
+  if (!product) throw ApiError.notFound('Product not found');
+  return prisma.productReview.update({
+    where: { id: reviewId },
+    data: { providerReply: text, repliedAt: text ? new Date() : null },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      providerReply: true,
+      repliedAt: true,
       createdAt: true,
       user: { select: { fullName: true } },
     },
@@ -155,4 +208,6 @@ export const reviewService = {
   createForProduct,
   listForProvider,
   listForProduct,
+  reply,
+  replyToProduct,
 };

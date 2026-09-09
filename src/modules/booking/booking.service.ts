@@ -92,7 +92,10 @@ async function create(userId: string, input: CreateBookingInput) {
       },
     });
     if (!coupon) throw ApiError.badRequest('That code isn’t valid for this business.');
-    const evaluated = couponService.evaluateCoupon(coupon, subtotal);
+    const evaluated = couponService.evaluateCoupon(coupon, {
+      subtotalMinor: subtotal,
+      serviceId: service.id,
+    });
     if (evaluated.error) throw ApiError.badRequest(evaluated.error);
     discountMinor = evaluated.discountMinor;
     appliedCoupon = { id: coupon.id, code: coupon.code };

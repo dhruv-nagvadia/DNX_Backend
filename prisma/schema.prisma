@@ -50,6 +50,12 @@ enum DiscountType {
   FLAT // discountValue is a fixed amount in minor units (paise)
 }
 
+enum CouponScope {
+  ORDER // eligibility is based on the order/booking subtotal (minOrderMinor)
+  SERVICE // only applies when booking one specific service
+  PRODUCT // only applies to one specific product in the cart
+}
+
 enum PaymentStatus {
   PENDING
   PARTIAL
@@ -265,6 +271,8 @@ model Service {
   updatedAt     DateTime @updatedAt
 
   bookings Booking[]
+  // Coupons scoped to this specific service.
+  coupons  Coupon[]
 
   @@index([providerId])
   @@index([categoryId])
@@ -350,6 +358,9 @@ model Review {
   provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   rating     Int // 1..5
   comment    String?
+  // The business owner's public reply to this review.
+  providerReply String?
+  repliedAt     DateTime?
   createdAt  DateTime @default(now())
 
   @@index([providerId])
@@ -392,6 +403,8 @@ model Product {
   orderItems  OrderItem[]
   cartItems   CartItem[]
   reviews     ProductReview[]
+  // Coupons scoped to this specific product.
+  coupons     Coupon[]
 
   @@index([providerId])
 }
@@ -406,10 +419,20 @@ model Coupon {
   code        String
   description String?
 
+  // What triggers eligibility: a minimum order subtotal (ORDER, the default),
+  // one specific service (SERVICE — service businesses only), or one specific
+  // product (PRODUCT — store businesses only).
+  scope     CouponScope @default(ORDER)
+  serviceId String?
+  service   Service?    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product?    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
   discountType  DiscountType
   // Percent (1–100) when PERCENT, else a flat amount in minor units (paise).
   discountValue Int
-  // Minimum order subtotal (minor units) required to use the coupon.
+  // Minimum order subtotal (minor units) required to use the coupon. Only
+  // meaningful when scope = ORDER.
   minOrderMinor Int  @default(0)
   // Optional cap on a percentage discount (minor units).
   maxDiscountMinor Int?
@@ -425,6 +448,8 @@ model Coupon {
 
   @@unique([providerId, code])
   @@index([providerId])
+  @@index([serviceId])
+  @@index([productId])
 }
 
 // A customer's review of one product they bought (one per product per order).
@@ -438,6 +463,9 @@ model ProductReview {
   user      User     @relation(fields: [userId], references: [id])
   rating    Int // 1..5
   comment   String?
+  // The business owner's public reply to this review.
+  providerReply String?
+  repliedAt     DateTime?
   createdAt DateTime @default(now())
 
   @@unique([orderId, productId])

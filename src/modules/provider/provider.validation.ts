@@ -24,13 +24,19 @@ export const listProviderSchema = z.object({
     categorySlug: z.string().optional(),
     subcategorySlug: z.string().optional(),
     city: z.string().optional(),
+    postalCode: z.string().optional(),
     search: z.string().optional(),
     // Filter by business kind: services (appointments) or stores (products).
     type: z.enum(['SERVICE', 'STORE']).optional(),
     // Only businesses rated at least this (0–5).
     minRating: z.coerce.number().min(0).max(5).optional(),
+    // Only businesses open right now.
+    openNow: z.coerce.boolean().optional(),
     // Result ordering.
-    sort: z.enum(['rating', 'reviews', 'newest']).optional(),
+    sort: z.enum(['rating', 'reviews', 'newest', 'nearest']).optional(),
+    // Customer's coordinates, for 'nearest'.
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    lng: z.coerce.number().min(-180).max(180).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),
