@@ -59,13 +59,43 @@ function restoreStockOps(items: { productId: string | null; quantity: number }[]
     );
 }
 
+export interface OrderLine {
+  productId: string;
+  name: string;
+  measure: string;
+  priceMinor: number;
+  priceQty: number;
+  unit: string;
+  quantity: number;
+  lineTotal: number;
+}
+
+/** A validated, price-locked cart — everything needed to actually place the
+ * order, computed once so a payment attempt and its eventual confirmation
+ * agree on exactly what was charged. */
+export interface OrderPlan {
+  providerId: string;
+  providerUserId: string;
+  businessName: string;
+  method: 'ONLINE' | 'CASH' | 'PARTIAL';
+  note?: string;
+  lines: OrderLine[];
+  subtotal: number;
+  discountMinor: number;
+  couponId: string | null;
+  couponCode: string | null;
+  total: number; // subtotal − discount
+  depositMinor: number; // only meaningful for PARTIAL
+}
+
 /**
- * Places a pickup order for a STORE business: validates stock, snapshots the
- * line items, decrements inventory, and settles payment. In test mode (no
- * Razorpay keys) an ONLINE order is marked paid immediately; CASH is collected
- * at pickup.
+ * Validates a cart against live stock/coupon rules and locks in prices. This
+ * is the shared first half of order creation — used both for orders placed
+ * immediately (CASH, or test mode with no live Razorpay keys) and for the
+ * pay-then-place flow (payment.service creates the real order only once the
+ * payment is confirmed).
  */
-async function create(userId: string, input: CreateOrderInput) {
+async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
   const provider = await prisma.provider.findUnique({ where: { id: input.providerId } });
   if (!provider || !provider.isActive) throw ApiError.badRequest('This store is not available');
   if (provider.type !== 'STORE') {
@@ -78,8 +108,8 @@ async function create(userId: string, input: CreateOrderInput) {
   });
   const byId = new Map(products.map((p) => [p.id, p]));
 
-  let total = 0;
-  const lines = input.items.map((i) => {
+  let subtotal = 0;
+  const lines: OrderLine[] = input.items.map((i) => {
     const p = byId.get(i.productId);
     if (!p) throw ApiError.badRequest('A product in your cart is no longer available');
     const amount = i.quantity; // base units (e.g. grams)
@@ -92,7 +122,7 @@ async function create(userId: string, input: CreateOrderInput) {
     }
     // Price scales with the amount: (amount / priceQty) × priceMinor.
     const lineTotal = Math.round((amount / p.priceQty) * p.priceMinor);
-    total += lineTotal;
+    subtotal += lineTotal;
     return {
       productId: p.id,
       name: p.name,
@@ -106,9 +136,9 @@ async function create(userId: string, input: CreateOrderInput) {
   });
 
   // Apply a coupon (if any) to the subtotal; the discount comes off the total.
-  const subtotal = total;
   let discountMinor = 0;
-  let appliedCoupon: { id: string; code: string } | null = null;
+  let couponId: string | null = null;
+  let couponCode: string | null = null;
   if (input.couponCode) {
     const coupon = await prisma.coupon.findUnique({
       where: {
@@ -125,47 +155,73 @@ async function create(userId: string, input: CreateOrderInput) {
     });
     if (evaluated.error) throw ApiError.badRequest(evaluated.error);
     discountMinor = evaluated.discountMinor;
-    appliedCoupon = { id: coupon.id, code: coupon.code };
+    couponId = coupon.id;
+    couponCode = coupon.code;
   }
-  total = subtotal - discountMinor;
 
+  const total = subtotal - discountMinor;
   const method = input.paymentMethod ?? 'ONLINE';
-  // Orders have no live Razorpay link yet, so online/partial only settle in test
-  // mode. PARTIAL pays a deposit (provider's %, default 20) now; rest at pickup.
-  const configured = isRazorpayConfigured();
   const depositPct = method === 'PARTIAL' ? provider.depositPercent || 20 : 0;
   const depositMinor = Math.max(0, Math.round((total * depositPct) / 100));
 
-  let amountPaidMinor = 0;
-  let paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' = 'PENDING';
-  let status: 'PENDING' | 'CONFIRMED' = 'PENDING';
-  if (!configured && method === 'ONLINE') {
-    amountPaidMinor = total;
-    paymentStatus = 'PAID';
-    status = 'CONFIRMED';
-  } else if (!configured && method === 'PARTIAL') {
-    amountPaidMinor = depositMinor;
-    paymentStatus = 'PARTIAL';
-    status = 'CONFIRMED';
-  }
-  const simulated = !configured && (method === 'ONLINE' || method === 'PARTIAL');
+  return {
+    providerId: provider.id,
+    providerUserId: provider.userId,
+    businessName: provider.businessName,
+    method,
+    note: input.note,
+    lines,
+    subtotal,
+    discountMinor,
+    couponId,
+    couponCode,
+    total,
+    depositMinor,
+  };
+}
 
-  const result = await prisma.$transaction(async (tx) => {
-    const order = await tx.order.create({
+/** How much to charge online now: the deposit for PARTIAL, the full total otherwise. */
+function chargeForPlan(plan: OrderPlan): number {
+  return plan.method === 'PARTIAL' ? Math.max(100, plan.depositMinor) : plan.total;
+}
+
+/**
+ * Persists a validated plan as a real order: decrements stock, redeems the
+ * coupon, clears the matching cart items, and notifies the store owner. Only
+ * called once payment has actually settled (immediately for CASH/test mode,
+ * or after a confirmed online payment) — never for a payment that might fail.
+ */
+async function finalizeOrderPlan(
+  userId: string,
+  plan: OrderPlan,
+  payment: {
+    amountPaidMinor: number;
+    paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID';
+    status: 'PENDING' | 'CONFIRMED';
+    razorpayOrderId?: string;
+    paymentRef?: string;
+  },
+) {
+  const productIds = plan.lines.map((l) => l.productId);
+
+  const order = await prisma.$transaction(async (tx) => {
+    const created = await tx.order.create({
       data: {
         userId,
-        providerId: provider.id,
-        status,
-        note: input.note,
-        amountMinor: total,
-        discountMinor,
-        couponCode: appliedCoupon?.code ?? null,
-        amountPaidMinor,
+        providerId: plan.providerId,
+        status: payment.status,
+        note: plan.note,
+        amountMinor: plan.total,
+        discountMinor: plan.discountMinor,
+        couponCode: plan.couponCode,
+        amountPaidMinor: payment.amountPaidMinor,
         currency: 'INR',
-        paymentMethod: method,
-        paymentStatus,
+        paymentMethod: plan.method,
+        paymentStatus: payment.paymentStatus,
+        razorpayOrderId: payment.razorpayOrderId,
+        paymentRef: payment.paymentRef,
         items: {
-          create: lines.map((l) => ({
+          create: plan.lines.map((l) => ({
             productId: l.productId,
             name: l.name,
             measure: l.measure,
@@ -179,7 +235,7 @@ async function create(userId: string, input: CreateOrderInput) {
       include: orderInclude,
     });
 
-    for (const l of lines) {
+    for (const l of plan.lines) {
       await tx.product.update({
         where: { id: l.productId },
         data: { stockQty: { decrement: l.quantity } },
@@ -190,27 +246,61 @@ async function create(userId: string, input: CreateOrderInput) {
     await tx.cartItem.deleteMany({ where: { userId, productId: { in: productIds } } });
 
     // Count the coupon redemption.
-    if (appliedCoupon) {
+    if (plan.couponId) {
       await tx.coupon.update({
-        where: { id: appliedCoupon.id },
+        where: { id: plan.couponId },
         data: { usedCount: { increment: 1 } },
       });
     }
 
-    return { order, simulated };
+    return created;
   });
 
   // Tell the store owner a new order came in.
   await notificationService.notify({
-    userId: provider.userId,
+    userId: plan.providerUserId,
     type: 'ORDER_PLACED',
     title: 'New order',
-    body: `You have a new order for ${formatINR(total)}`,
+    body: `You have a new order for ${formatINR(plan.total)}`,
     entityType: 'ORDER',
-    entityId: result.order.id,
+    entityId: order.id,
   });
 
-  return result;
+  return order;
+}
+
+/**
+ * Places a pickup order for a STORE business. CASH orders (and, in test mode
+ * with no live Razorpay keys, ONLINE/PARTIAL) are placed immediately. With
+ * live keys configured, ONLINE/PARTIAL must go through the payment endpoints
+ * instead — the order is only created once that payment is confirmed, so a
+ * failed or abandoned checkout never leaves a "placed" order or reserved stock
+ * behind.
+ */
+async function create(userId: string, input: CreateOrderInput) {
+  const plan = await buildOrderPlan(input);
+  const configured = isRazorpayConfigured();
+
+  if (configured && plan.method !== 'CASH') {
+    throw ApiError.badRequest('Use the payment checkout to complete this order.');
+  }
+
+  let amountPaidMinor = 0;
+  let paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' = 'PENDING';
+  let status: 'PENDING' | 'CONFIRMED' = 'PENDING';
+  if (!configured && plan.method === 'ONLINE') {
+    amountPaidMinor = plan.total;
+    paymentStatus = 'PAID';
+    status = 'CONFIRMED';
+  } else if (!configured && plan.method === 'PARTIAL') {
+    amountPaidMinor = chargeForPlan(plan);
+    paymentStatus = 'PARTIAL';
+    status = 'CONFIRMED';
+  }
+  const simulated = !configured && (plan.method === 'ONLINE' || plan.method === 'PARTIAL');
+
+  const order = await finalizeOrderPlan(userId, plan, { amountPaidMinor, paymentStatus, status });
+  return { order, simulated };
 }
 
 /** The logged-in customer's orders (newest first). */
@@ -367,4 +457,8 @@ export const orderService = {
   listForOwner,
   updateStatus,
   collectPayment,
+  // Exposed for payment.service's pay-then-place checkout flow.
+  buildOrderPlan,
+  chargeForPlan,
+  finalizeOrderPlan,
 };

@@ -548,6 +548,26 @@ model OrderItem {
   @@index([orderId])
 }
 
+// A validated, price-locked order waiting on an online payment to complete.
+// The real Order row (and its stock decrement / coupon redemption) is only
+// created once the payment is confirmed (client signature or webhook) — so a
+// failed or abandoned checkout never leaves a "placed" order behind.
+model PendingOrder {
+  id              String   @id @default(cuid())
+  userId          String
+  providerId      String
+  razorpayOrderId String   @unique
+  // Serialized CreateOrderInput + resolved line items/total, so the order can
+  // be created exactly as validated at checkout time.
+  payload         Json
+  amountMinor     Int
+  currency        String   @default("INR")
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+
+  @@index([userId])
+}
+
 // An in-app notification for one user. Written on order/booking events and read
 // by both apps (provider web + customer mobile) via /notifications.
 model Notification {
