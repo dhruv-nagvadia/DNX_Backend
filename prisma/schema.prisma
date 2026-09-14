@@ -315,8 +315,13 @@ model Booking {
   @@index([userId])
   @@index([providerId])
   @@index([status])
-  // Prevents the exact same provider slot from being double-booked.
-  @@unique([providerId, startTime])
+  // Prevents the exact same provider slot from being double-booked — but a
+  // cancelled booking must not permanently occupy its old slot, so this is a
+  // partial index (see the accompanying migration's raw SQL) that only
+  // applies to non-cancelled bookings. Prisma's schema DSL can't express the
+  // WHERE clause, so this @@index is just for query planning; the actual
+  // uniqueness constraint lives in the migration.
+  @@index([providerId, startTime])
 }
 
 // A customer's personal reminder — a manual renewal/service (car insurance,
