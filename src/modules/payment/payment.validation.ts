@@ -56,3 +56,9 @@ export const orderCheckoutConfirmSchema = z.object({
     razorpaySignature: z.string().min(1),
   }),
 });
+
+export const orderCheckoutSyncSchema = z.object({
+  body: z.object({
+    razorpayOrderId: z.string().min(1),
+  }),
+});

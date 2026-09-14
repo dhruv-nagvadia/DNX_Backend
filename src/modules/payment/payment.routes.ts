@@ -10,6 +10,7 @@ import {
   paymentVerifyOrderSchema,
   orderCheckoutStartSchema,
   orderCheckoutConfirmSchema,
+  orderCheckoutSyncSchema,
 } from './payment.validation';
 
 /** Customer payment actions. Mounted at /customer/payments — USER only. */
@@ -44,6 +45,11 @@ paymentRoutes.post(
   '/orders/checkout/confirm',
   validate(orderCheckoutConfirmSchema),
   paymentController.confirmCheckout,
+);
+paymentRoutes.post(
+  '/orders/checkout/sync',
+  validate(orderCheckoutSyncSchema),
+  paymentController.syncCheckout,
 );
 
 /** Public Razorpay webhook. Mounted at /payments. */

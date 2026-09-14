@@ -94,6 +94,12 @@ const confirmCheckout = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, result, 'Payment successful');
 });
 
+const syncCheckout = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const result = await paymentService.syncOrderCheckout(req.user.sub, req.body.razorpayOrderId);
+  sendSuccess(res, result);
+});
+
 export const paymentController = {
   createLink,
   simulate,
@@ -106,4 +112,5 @@ export const paymentController = {
   syncOrder,
   startCheckout,
   confirmCheckout,
+  syncCheckout,
 };

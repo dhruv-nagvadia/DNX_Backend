@@ -334,6 +334,50 @@ async function confirmOrderCheckout(
 }
 
 /**
+ * Reconciliation fallback for cart checkout: asks Razorpay directly whether a
+ * payment landed, instead of relying on the client SDK's callback. Covers the
+ * case where the checkout sheet's result never reached the app (closed mid-
+ * payment, a slow bank redirect outlasting the client, a network blip on the
+ * confirm call) but the charge actually went through.
+ */
+async function syncOrderCheckout(userId: string, razorpayOrderId: string) {
+  const pending = await prisma.pendingOrder.findUnique({ where: { razorpayOrderId } });
+  if (!pending || pending.userId !== userId) {
+    const existing = await prisma.order.findFirst({ where: { razorpayOrderId, userId } });
+    if (existing) return { paymentStatus: existing.paymentStatus, orderId: existing.id };
+    return { paymentStatus: 'PENDING' as const, orderId: null };
+  }
+  if (!isRazorpayConfigured()) return { paymentStatus: 'PENDING' as const, orderId: null };
+
+  const payments = (await razorpay().orders.fetchPayments(razorpayOrderId)) as unknown as {
+    items?: Array<{ id: string; status: string; amount: number }>;
+  };
+  const captured = payments.items?.find((p) => p.status === 'captured' || p.status === 'authorized');
+  if (!captured) return { paymentStatus: 'PENDING' as const, orderId: null };
+
+  // Claim it — if it's already gone, the client's confirm call (or the
+  // webhook) beat us to it.
+  try {
+    await prisma.pendingOrder.delete({ where: { id: pending.id } });
+  } catch {
+    const existing = await prisma.order.findFirst({ where: { razorpayOrderId, userId } });
+    if (existing) return { paymentStatus: existing.paymentStatus, orderId: existing.id };
+    return { paymentStatus: 'PENDING' as const, orderId: null };
+  }
+
+  const plan = pending.payload as unknown as OrderPlan;
+  const paymentStatus = plan.method === 'PARTIAL' && captured.amount < plan.total ? 'PARTIAL' : 'PAID';
+  const order = await orderService.finalizeOrderPlan(userId, plan, {
+    amountPaidMinor: captured.amount,
+    paymentStatus,
+    status: 'CONFIRMED',
+    razorpayOrderId,
+    paymentRef: captured.id,
+  });
+  return { paymentStatus, orderId: order.id };
+}
+
+/**
  * Creates a Razorpay Order for the customer's native in-app checkout (or
  * signals test mode). The mobile app opens `RazorpayCheckout.open({ order_id })`
  * directly with this — no browser/payment-link redirect involved.
@@ -488,6 +532,7 @@ export const paymentService = {
   syncOrderPayment,
   startOrderCheckout,
   confirmOrderCheckout,
+  syncOrderCheckout,
   handleWebhook,
   collectPayment,
 };
