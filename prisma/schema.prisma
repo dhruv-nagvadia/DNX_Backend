@@ -99,6 +99,12 @@ model User {
   role         Role     @default(USER)
   avatarUrl    String?
   isActive     Boolean  @default(true)
+  // Captured at signup (from a typed PIN code, or GPS reverse-geocoding) so
+  // Home-screen content has a location to filter by even before the customer
+  // grants location permission or sets one manually.
+  postalCode   String?
+  city         String?
+  state        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

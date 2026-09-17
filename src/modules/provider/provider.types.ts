@@ -21,6 +21,7 @@ export interface ListProviderQuery {
   categorySlug?: string;
   subcategorySlug?: string;
   city?: string;
+  state?: string;
   // Prefix match on postal code (e.g. "3800" matches "380001").
   postalCode?: string;
   search?: string;

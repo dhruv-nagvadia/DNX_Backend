@@ -47,6 +47,12 @@ const updateMe = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, user, 'Profile updated');
 });
 
+const changePassword = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  await authService.changePassword(req.user.sub, req.body.currentPassword, req.body.newPassword);
+  sendSuccess(res, null, 'Password updated');
+});
+
 export const authController = {
   registerCustomer,
   loginCustomer,
@@ -55,4 +61,5 @@ export const authController = {
   refresh,
   me,
   updateMe,
+  changePassword,
 };

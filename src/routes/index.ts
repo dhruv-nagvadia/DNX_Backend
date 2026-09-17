@@ -5,6 +5,7 @@ import { providerRoutes } from '@/modules/provider/provider.routes';
 import { customerRoutes } from '@/modules/customer/customer.routes';
 import { paymentWebhookRoutes } from '@/modules/payment/payment.routes';
 import { notificationRoutes } from '@/modules/notification/notification.routes';
+import { geoRoutes } from '@/modules/geo/geo.routes';
 
 /**
  * Root API router, organized by audience:
@@ -19,6 +20,7 @@ apiRouter.use('/auth', authRoutes);
 apiRouter.use('/categories', categoryRoutes);
 apiRouter.use('/payments', paymentWebhookRoutes); // public Razorpay webhook
 apiRouter.use('/notifications', notificationRoutes); // token-based; any role
+apiRouter.use('/geo', geoRoutes);
 
 // Audience-specific
 apiRouter.use('/provider', providerRoutes);

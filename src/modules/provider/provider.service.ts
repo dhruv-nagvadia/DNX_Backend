@@ -38,15 +38,13 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.asin(Math.sqrt(a));
 }
 
-/** Public listing with category/city/postal/geo/text filters + pagination. */
-async function list(query: ListProviderQuery) {
+/** Every non-location filter shared across all tiers of a listing. */
+function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
   const where: Prisma.ProviderWhereInput = { isActive: true };
 
   if (query.categorySlug) where.category = { slug: query.categorySlug };
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
   if (query.type) where.type = query.type;
-  if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
-  if (query.postalCode) where.postalCode = { startsWith: query.postalCode };
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) {
     where.OR = [
@@ -63,10 +61,22 @@ async function list(query: ListProviderQuery) {
       some: { dayOfWeek: now.getDay(), isOpen: true, openTime: { lte: hhmm }, closeTime: { gte: hhmm } },
     };
   }
+  return where;
+}
+
+export type LocationScope = 'postalCode' | 'city' | 'state' | null;
+
+/** Public listing with category/city/postal/geo/text filters + pagination. */
+async function list(query: ListProviderQuery) {
+  const baseWhere = buildBaseWhere(query);
 
   // "Nearest" needs the customer's coordinates — distance isn't a stored
   // column, so it's computed and sorted in-app rather than by the database.
   if (query.sort === 'nearest' && query.lat != null && query.lng != null) {
+    const where = { ...baseWhere };
+    if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
+    if (query.postalCode) where.postalCode = { startsWith: query.postalCode };
+
     const all = await prisma.provider.findMany({ where, include: publicInclude });
     const withDistance = all.map((p) => ({
       ...p,
@@ -92,6 +102,7 @@ async function list(query: ListProviderQuery) {
         total,
         totalPages: Math.ceil(total / query.limit),
       },
+      locationScope: null as LocationScope,
     };
   }
 
@@ -105,6 +116,38 @@ async function list(query: ListProviderQuery) {
         : [{ ratingAvg: 'desc' }, { ratingCount: 'desc' }];
 
   const skip = (query.page - 1) * query.limit;
+
+  // Tiered location fallback: try an exact postal-code match first, then
+  // widen to the city, then the state — only using tiers whose value the
+  // customer actually has (e.g. no city known just skips that tier). Each
+  // tier is only queried if the previous one came back empty, so a customer
+  // whose exact area has listings never even sees a wider tier attempted.
+  const tiers: { scope: Exclude<LocationScope, null>; where: Prisma.ProviderWhereInput }[] = [];
+  if (query.postalCode) {
+    tiers.push({ scope: 'postalCode', where: { postalCode: { startsWith: query.postalCode } } });
+  }
+  if (query.city) {
+    tiers.push({ scope: 'city', where: { city: { equals: query.city, mode: 'insensitive' } } });
+  }
+  if (query.state) {
+    tiers.push({ scope: 'state', where: { state: { equals: query.state, mode: 'insensitive' } } });
+  }
+
+  let locationScope: LocationScope = null;
+  let where: Prisma.ProviderWhereInput = baseWhere;
+
+  for (const tier of tiers) {
+    const tierWhere = { ...baseWhere, ...tier.where };
+    // eslint-disable-next-line no-await-in-loop
+    const count = await prisma.provider.count({ where: tierWhere });
+    where = tierWhere;
+    locationScope = tier.scope;
+    // Found something at this tier — stop widening. Otherwise `where`/
+    // `locationScope` are left pointing at the last (widest) tier tried, so
+    // an all-empty search can still report how far it looked.
+    if (count > 0) break;
+  }
+
   const [items, total] = await Promise.all([
     prisma.provider.findMany({
       where,
@@ -124,6 +167,7 @@ async function list(query: ListProviderQuery) {
       total,
       totalPages: Math.ceil(total / query.limit),
     },
+    locationScope,
   };
 }
 

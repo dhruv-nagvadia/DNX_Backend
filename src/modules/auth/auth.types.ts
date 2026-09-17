@@ -5,6 +5,9 @@ export interface RegisterInput {
   password: string;
   fullName: string;
   phone?: string;
+  postalCode?: string;
+  city?: string;
+  state?: string;
 }
 
 export interface LoginInput {
@@ -23,4 +26,7 @@ export interface AuthResult extends AuthTokens {
   email: string;
   fullName: string;
   role: Role;
+  postalCode: string | null;
+  city: string | null;
+  state: string | null;
 }

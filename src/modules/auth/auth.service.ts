@@ -40,6 +40,9 @@ async function register(input: RegisterInput, role: Role): Promise<AuthResult> {
       passwordHash,
       fullName: input.fullName,
       phone: input.phone,
+      postalCode: input.postalCode,
+      city: input.city,
+      state: input.state,
       role,
     },
   });
@@ -51,6 +54,9 @@ async function register(input: RegisterInput, role: Role): Promise<AuthResult> {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    postalCode: user.postalCode,
+    city: user.city,
+    state: user.state,
   };
 }
 
@@ -72,6 +78,9 @@ async function login(input: LoginInput, role: Role): Promise<AuthResult> {
     email: user.email,
     fullName: user.fullName,
     role: user.role,
+    postalCode: user.postalCode,
+    city: user.city,
+    state: user.state,
   };
 }
 
@@ -87,7 +96,17 @@ async function refresh(refreshToken: string): Promise<AuthTokens> {
 async function me(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, fullName: true, role: true, phone: true, avatarUrl: true },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      role: true,
+      phone: true,
+      avatarUrl: true,
+      postalCode: true,
+      city: true,
+      state: true,
+    },
   });
   if (!user) throw ApiError.notFound('User not found');
   return user;
@@ -96,13 +115,37 @@ async function me(userId: string) {
 /** Updates the signed-in account's own profile fields. */
 async function updateMe(
   userId: string,
-  input: { fullName?: string; phone?: string; email?: string },
+  input: {
+    fullName?: string;
+    phone?: string;
+    email?: string;
+    postalCode?: string;
+    city?: string;
+    state?: string;
+  },
 ) {
   try {
     return await prisma.user.update({
       where: { id: userId },
-      data: { fullName: input.fullName, phone: input.phone, email: input.email },
-      select: { id: true, email: true, fullName: true, role: true, phone: true, avatarUrl: true },
+      data: {
+        fullName: input.fullName,
+        phone: input.phone,
+        email: input.email,
+        postalCode: input.postalCode,
+        city: input.city,
+        state: input.state,
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        phone: true,
+        avatarUrl: true,
+        postalCode: true,
+        city: true,
+        state: true,
+      },
     });
   } catch (err) {
     // @@unique([email, role]) — the email is taken by another account of this type.
@@ -113,4 +156,16 @@ async function updateMe(
   }
 }
 
-export const authService = { register, login, refresh, me, updateMe };
+/** Changes the signed-in account's password after verifying the current one. */
+async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw ApiError.notFound('User not found');
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) throw ApiError.unauthorized('Current password is incorrect');
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+}
+
+export const authService = { register, login, refresh, me, updateMe, changePassword };
