@@ -1,7 +1,8 @@
 import { BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
-import { notificationService } from '@/modules/notification/notification.service';
+import { refundPayment } from '@/lib/razorpay';
+import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { couponService } from '@/modules/coupon/coupon.service';
 import { CreateBookingInput } from './booking.types';
 
@@ -213,21 +214,40 @@ async function updateStatus(
     );
   }
 
+  // Cancelling a paid booking refunds what was paid via Razorpay (a no-op for
+  // cash/test-mode payments).
+  const refund =
+    status === 'CANCELLED' && booking.paymentStatus !== 'REFUNDED'
+      ? Math.max(0, booking.amountPaidMinor)
+      : 0;
+  const refunded = refund > 0 ? await refundPayment(booking.paymentRef, refund) : false;
+
   const updated = await prisma.booking.update({
     where: { id: bookingId },
-    // Only store a reason when cancelling.
-    data: { status, cancelReason: status === 'CANCELLED' ? reason ?? null : undefined },
+    data: {
+      status,
+      // Only store a reason when cancelling.
+      cancelReason: status === 'CANCELLED' ? reason ?? null : undefined,
+      ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
+    },
     select: providerBookingSelect,
   });
 
   // Keep the customer posted on their booking.
   const copy = BOOKING_STATUS_COPY[status];
   if (copy) {
+    let body = copy;
+    if (status === 'CANCELLED' && refund > 0) {
+      body = refunded
+        ? `${copy} — ${formatINR(refund)} has been refunded`
+        : `${copy} — your ${formatINR(refund)} refund is still being processed`;
+    }
+    if (status === 'CANCELLED' && reason) body += `: ${reason}`;
     await notificationService.notify({
       userId: booking.userId,
       type: 'BOOKING_STATUS',
       title: 'Booking update',
-      body: status === 'CANCELLED' && reason ? `${copy}: ${reason}` : copy,
+      body,
       entityType: 'BOOKING',
       entityId: bookingId,
     });
@@ -243,9 +263,14 @@ async function cancelByCustomer(userId: string, bookingId: string) {
   if (booking.status !== 'PENDING' && booking.status !== 'CONFIRMED') {
     throw ApiError.badRequest('This booking can no longer be cancelled.');
   }
+
+  // Any money already paid is refunded via Razorpay (a no-op for cash/test-mode payments).
+  const refund = booking.paymentStatus === 'REFUNDED' ? 0 : Math.max(0, booking.amountPaidMinor);
+  const refunded = refund > 0 ? await refundPayment(booking.paymentRef, refund) : false;
+
   const updated = await prisma.booking.update({
     where: { id: bookingId },
-    data: { status: 'CANCELLED' },
+    data: { status: 'CANCELLED', ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}) },
     select: bookingSelect,
   });
 
@@ -259,7 +284,23 @@ async function cancelByCustomer(userId: string, bookingId: string) {
       userId: owner.userId,
       type: 'BOOKING_CANCELLED',
       title: 'Booking cancelled',
-      body: 'A customer cancelled their booking',
+      body:
+        'A customer cancelled their booking' + (refunded ? ` — ${formatINR(refund)} refunded` : ''),
+      entityType: 'BOOKING',
+      entityId: bookingId,
+    });
+  }
+
+  // Confirm the refund to the customer — or flag it for manual follow-up if
+  // the Razorpay refund itself failed (rare; the booking is still cancelled).
+  if (refund > 0) {
+    await notificationService.notify({
+      userId,
+      type: 'BOOKING_STATUS',
+      title: refunded ? 'Refund issued' : 'Refund pending',
+      body: refunded
+        ? `${formatINR(refund)} has been refunded for your cancelled booking`
+        : `Your cancelled booking's ${formatINR(refund)} refund is still being processed — contact support if it doesn't appear soon.`,
       entityType: 'BOOKING',
       entityId: bookingId,
     });

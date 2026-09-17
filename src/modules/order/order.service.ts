@@ -1,7 +1,7 @@
 import { OrderStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
-import { isRazorpayConfigured } from '@/lib/razorpay';
+import { isRazorpayConfigured, refundPayment } from '@/lib/razorpay';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { couponService } from '@/modules/coupon/coupon.service';
 import { CreateOrderInput } from './order.types';
@@ -323,14 +323,15 @@ async function cancelByCustomer(userId: string, orderId: string) {
     throw ApiError.badRequest('This order can no longer be cancelled.');
   }
 
-  // Any money already paid is refunded (simulated until Razorpay is live).
+  // Any money already paid is refunded via Razorpay (a no-op for cash/test-mode payments).
   const refund = order.paymentStatus === 'REFUNDED' ? 0 : Math.max(0, order.amountPaidMinor);
+  const refunded = refund > 0 ? await refundPayment(order.paymentRef, refund) : false;
 
   await prisma.$transaction([
     ...restoreStockOps(order.items),
     prisma.order.update({
       where: { id: orderId },
-      data: { status: 'CANCELLED', ...(refund > 0 ? { paymentStatus: 'REFUNDED' as const } : {}) },
+      data: { status: 'CANCELLED', ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}) },
     }),
   ]);
 
@@ -341,18 +342,21 @@ async function cancelByCustomer(userId: string, orderId: string) {
     title: 'Order cancelled',
     body:
       `A customer cancelled their ${formatINR(order.amountMinor)} order` +
-      (refund > 0 ? ` — ${formatINR(refund)} refunded` : ''),
+      (refunded ? ` — ${formatINR(refund)} refunded` : ''),
     entityType: 'ORDER',
     entityId: orderId,
   });
 
-  // Confirm the refund to the customer.
+  // Confirm the refund to the customer — or flag it for manual follow-up if
+  // the Razorpay refund itself failed (rare; the order is still cancelled).
   if (refund > 0) {
     await notificationService.notify({
       userId,
       type: 'ORDER_STATUS',
-      title: 'Refund issued',
-      body: `${formatINR(refund)} has been refunded for your cancelled order`,
+      title: refunded ? 'Refund issued' : 'Refund pending',
+      body: refunded
+        ? `${formatINR(refund)} has been refunded for your cancelled order`
+        : `Your cancelled order's ${formatINR(refund)} refund is still being processed — contact support if it doesn't appear soon.`,
       entityType: 'ORDER',
       entityId: orderId,
     });
@@ -395,11 +399,13 @@ async function updateStatus(
       `A ${order.status.toLowerCase()} order can't be marked ${status.toLowerCase()}.`,
     );
   }
-  // Cancelling a paid order refunds what was paid (simulated until Razorpay is live).
+  // Cancelling a paid order refunds what was paid via Razorpay (a no-op for
+  // cash/test-mode payments).
   const refund =
     status === 'CANCELLED' && order.paymentStatus !== 'REFUNDED'
       ? Math.max(0, order.amountPaidMinor)
       : 0;
+  const refunded = refund > 0 ? await refundPayment(order.paymentRef, refund) : false;
   const cancelReason = status === 'CANCELLED' ? reason?.trim() || null : undefined;
 
   if (status === 'CANCELLED') {
@@ -410,7 +416,7 @@ async function updateStatus(
         data: {
           status,
           cancelReason,
-          ...(refund > 0 ? { paymentStatus: 'REFUNDED' as const } : {}),
+          ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
         },
       }),
     ]);
@@ -421,7 +427,11 @@ async function updateStatus(
   // Keep the customer posted on their order (mention the refund / reason when cancelling).
   let body = ORDER_STATUS_COPY[status];
   if (status === 'CANCELLED') {
-    body = refund > 0 ? `Your order was cancelled — ${formatINR(refund)} will be refunded` : body;
+    if (refund > 0) {
+      body = refunded
+        ? `Your order was cancelled — ${formatINR(refund)} will be refunded`
+        : `Your order was cancelled — your ${formatINR(refund)} refund is still being processed`;
+    }
     if (cancelReason) body += `: ${cancelReason}`;
   }
   await notificationService.notify({
