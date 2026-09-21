@@ -46,4 +46,48 @@ async function reverseGeocode(lat: number, lng: number): Promise<ReverseGeocodeR
   return { address, city, state, postalCode };
 }
 
-export const geoService = { reverseGeocode };
+interface NominatimSearchResult {
+  lat?: string;
+  lon?: string;
+}
+
+/**
+ * Best-effort forward-geocode: an approximate lat/lng for a postal code (or
+ * city/state as a fallback) — used to fill in coordinates for an address the
+ * customer typed manually (no GPS), so the travel fee can still be
+ * estimated. Accuracy is postal-code-area level, not house-level.
+ */
+async function forwardGeocode(input: {
+  postalCode?: string;
+  city?: string;
+  state?: string;
+}): Promise<{ latitude: number; longitude: number } | null> {
+  const params = new URLSearchParams({ format: 'json', limit: '1', country: 'India' });
+  if (input.postalCode) {
+    params.set('postalcode', input.postalCode);
+  } else if (input.city || input.state) {
+    params.set('q', [input.city, input.state].filter(Boolean).join(', '));
+  } else {
+    return null;
+  }
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' } });
+    if (!res.ok) return null;
+
+    const results = (await res.json()) as NominatimSearchResult[];
+    const best = results[0];
+    if (!best?.lat || !best?.lon) return null;
+
+    const latitude = Number(best.lat);
+    const longitude = Number(best.lon);
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+
+    return { latitude, longitude };
+  } catch {
+    return null;
+  }
+}
+
+export const geoService = { reverseGeocode, forwardGeocode };

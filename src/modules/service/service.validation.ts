@@ -7,6 +7,9 @@ export const createServiceSchema = z.object({
     price: z.coerce.number().min(0),
     durationMin: z.coerce.number().int().min(1).max(1440),
     currency: z.string().optional(),
+    travelRequired: z.coerce.boolean().optional(),
+    travelBaseFee: z.coerce.number().min(0).optional(),
+    travelPerKm: z.coerce.number().min(0).optional(),
   }),
 });
 
@@ -17,5 +20,8 @@ export const updateServiceSchema = z.object({
     price: z.coerce.number().min(0).optional(),
     durationMin: z.coerce.number().int().min(1).max(1440).optional(),
     isActive: z.boolean().optional(),
+    travelRequired: z.coerce.boolean().optional(),
+    travelBaseFee: z.coerce.number().min(0).optional(),
+    travelPerKm: z.coerce.number().min(0).optional(),
   }),
 });

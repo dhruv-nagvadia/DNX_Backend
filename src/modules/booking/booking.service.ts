@@ -2,6 +2,7 @@ import { BookingStatus, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { refundPayment } from '@/lib/razorpay';
+import { haversineKm } from '@/utils/geo';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { couponService } from '@/modules/coupon/coupon.service';
 import { CreateBookingInput } from './booking.types';
@@ -28,7 +29,9 @@ const bookingSelect = {
   paymentMethod: true,
   paymentStatus: true,
   cancelReason: true,
-  service: { select: { id: true, name: true, durationMin: true } },
+  serviceAddressLine: true,
+  travelFeeMinor: true,
+  service: { select: { id: true, name: true, durationMin: true, travelRequired: true } },
   provider: {
     select: { id: true, businessName: true, images: true, category: { select: { slug: true, name: true } } },
   },
@@ -47,6 +50,10 @@ const providerBookingSelect = {
   paymentMethod: true,
   paymentStatus: true,
   cancelReason: true,
+  serviceAddressLine: true,
+  serviceLat: true,
+  serviceLng: true,
+  travelFeeMinor: true,
   service: { select: { name: true } },
   user: { select: { fullName: true, phone: true } },
 } satisfies Prisma.BookingSelect;
@@ -71,6 +78,38 @@ async function create(userId: string, input: CreateBookingInput) {
   const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
   if (!service || service.providerId !== input.providerId || !service.isActive) {
     throw ApiError.badRequest('That service is not available');
+  }
+
+  // On-location service — the provider travels to the customer, so we need
+  // somewhere to go and a distance-based fee to add to the total.
+  let travelFeeMinor = 0;
+  let serviceAddressLine: string | null = null;
+  let serviceLat: number | null = null;
+  let serviceLng: number | null = null;
+  if (service.travelRequired) {
+    if (!input.serviceAddress) {
+      throw ApiError.badRequest('Choose an address for this on-location service.');
+    }
+    const provider = await prisma.provider.findUnique({
+      where: { id: input.providerId },
+      select: { latitude: true, longitude: true },
+    });
+    const distanceKm =
+      provider?.latitude != null &&
+      provider?.longitude != null &&
+      input.serviceAddress.latitude != null &&
+      input.serviceAddress.longitude != null
+        ? haversineKm(
+            provider.latitude,
+            provider.longitude,
+            input.serviceAddress.latitude,
+            input.serviceAddress.longitude,
+          )
+        : 0;
+    travelFeeMinor = service.travelBaseFeeMinor + Math.round(service.travelPerKmMinor * distanceKm);
+    serviceAddressLine = input.serviceAddress.line;
+    serviceLat = input.serviceAddress.latitude ?? null;
+    serviceLng = input.serviceAddress.longitude ?? null;
   }
 
   const start = new Date(input.startTime);
@@ -101,7 +140,8 @@ async function create(userId: string, input: CreateBookingInput) {
     discountMinor = evaluated.discountMinor;
     appliedCoupon = { id: coupon.id, code: coupon.code };
   }
-  const total = subtotal - discountMinor;
+  // Travel fee is a separate surcharge, added after the (service-only) discount.
+  const total = subtotal - discountMinor + travelFeeMinor;
 
   let booking;
   try {
@@ -120,6 +160,10 @@ async function create(userId: string, input: CreateBookingInput) {
           couponCode: appliedCoupon?.code ?? null,
           currency: service.currency,
           paymentMethod: input.paymentMethod ?? 'ONLINE',
+          serviceAddressLine,
+          serviceLat,
+          serviceLng,
+          travelFeeMinor,
         },
         select: bookingSelect,
       });

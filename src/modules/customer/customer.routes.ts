@@ -11,6 +11,7 @@ import { orderRoutes } from '@/modules/order/order.routes';
 import { cartRoutes } from '@/modules/cart/cart.routes';
 import { reminderRoutes } from '@/modules/reminder/reminder.routes';
 import { paymentRoutes } from '@/modules/payment/payment.routes';
+import { addressRoutes } from '@/modules/address/address.routes';
 import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
@@ -53,6 +54,9 @@ customerRoutes.use('/cart', cartRoutes);
 
 // Reminders (auth handled inside the reminder router)
 customerRoutes.use('/reminders', reminderRoutes);
+
+// Saved addresses, for on-location service bookings (auth handled inside the router)
+customerRoutes.use('/addresses', addressRoutes);
 
 // Payments (auth handled inside the payment router)
 customerRoutes.use('/payments', paymentRoutes);

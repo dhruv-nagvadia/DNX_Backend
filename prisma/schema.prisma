@@ -124,6 +124,8 @@ model User {
   reminders Reminder[]
   // In-app notifications addressed to this user (customer or provider).
   notifications Notification[]
+  // Saved addresses (for on-location service bookings — see Address below).
+  addresses Address[]
 
   // Accounts are per-audience: the same email can exist once as a customer
   // (USER) and once as a business (PROVIDER) — two independent accounts.
@@ -273,6 +275,15 @@ model Service {
   currency      String   @default("INR")
   durationMin   Int      @default(30)
   isActive      Boolean  @default(true)
+
+  // On-location services (plumber, electrician…) — the provider travels to
+  // the customer instead of the customer coming to the business. The travel
+  // fee is base + per-km, computed from the provider's business location to
+  // the customer's chosen address at booking time.
+  travelRequired     Boolean @default(false)
+  travelBaseFeeMinor Int     @default(0)
+  travelPerKmMinor   Int     @default(0)
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -303,6 +314,15 @@ model Booking {
   // Coupon applied at booking (snapshotted). amountMinor is the final total.
   discountMinor Int    @default(0)
   couponCode    String?
+
+  // On-location service: where the provider needs to go, and the computed
+  // travel fee (already folded into amountMinor). Snapshotted at booking time
+  // — independent of the customer's saved Address, which they can edit/delete
+  // later — so a past/upcoming booking's destination never silently changes.
+  serviceAddressLine String?
+  serviceLat         Float?
+  serviceLng         Float?
+  travelFeeMinor     Int     @default(0)
 
   // Payment (Razorpay).
   amountMinor     Int?
@@ -351,6 +371,35 @@ model Reminder {
   completedAt      DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+
+  @@index([userId])
+}
+
+// A customer's saved address — used to tell an on-location provider (plumber,
+// electrician…) where to go. Coordinates are optional (the customer isn't
+// necessarily AT this address when adding it, e.g. a parent's house) — when
+// missing, they're best-effort filled in server-side from the postal code so
+// the travel fee can still be estimated.
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Optional short name, e.g. "Home", "Work".
+  label      String?
+  // House/flat/apartment number.
+  houseFlat  String?
+  // Area, street, or sector.
+  areaStreet String
+  // Combined free-text line, for display — houseFlat + areaStreet.
+  line       String
+  city       String?
+  state      String?
+  postalCode String?
+  latitude   Float?
+  longitude  Float?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId])
 }

@@ -9,6 +9,17 @@ export const createBookingSchema = z.object({
     paymentMethod: z.enum(['ONLINE', 'CASH', 'PARTIAL']).default('ONLINE'),
     // Optional discount code applied at booking.
     couponCode: z.string().trim().max(24).optional(),
+    // Required when the selected service is on-location (Service.travelRequired).
+    // Coordinates are optional — a saved address may not have any (best-effort
+    // server-side geocoding can fail) — the travel fee then falls back to the
+    // flat base fee only, with no per-km component.
+    serviceAddress: z
+      .object({
+        line: z.string().min(1).max(300),
+        latitude: z.coerce.number().min(-90).max(90).optional(),
+        longitude: z.coerce.number().min(-180).max(180).optional(),
+      })
+      .optional(),
   }),
 });
 

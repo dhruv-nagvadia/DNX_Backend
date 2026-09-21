@@ -5,6 +5,11 @@ export interface CreateServiceInput {
   price: number;
   durationMin: number;
   currency?: string;
+  // On-location services: the provider travels to the customer.
+  travelRequired?: boolean;
+  // Travel fees in major units (rupees); stored as minor units (paise).
+  travelBaseFee?: number;
+  travelPerKm?: number;
 }
 
 export interface UpdateServiceInput {
@@ -13,4 +18,7 @@ export interface UpdateServiceInput {
   price?: number;
   durationMin?: number;
   isActive?: boolean;
+  travelRequired?: boolean;
+  travelBaseFee?: number;
+  travelPerKm?: number;
 }
