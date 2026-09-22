@@ -55,23 +55,60 @@ function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
 
 export type LocationScope = 'postalCode' | 'city' | 'state' | null;
 
+// km per degree of latitude is ~constant; longitude shrinks with cos(latitude).
+const KM_PER_DEGREE_LAT = 111;
+// A generous "nearby" radius — enough to cover a typical city/metro area.
+// Only providers within this box get the (unavoidably per-row) haversine
+// calc; the box itself is a cheap, indexed range check the database does.
+const NEARBY_RADIUS_KM = 50;
+
+function boundingBox(lat: number, lng: number, radiusKm: number) {
+  const latDelta = radiusKm / KM_PER_DEGREE_LAT;
+  const lngDelta = radiusKm / (KM_PER_DEGREE_LAT * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+  return {
+    minLat: lat - latDelta,
+    maxLat: lat + latDelta,
+    minLng: lng - lngDelta,
+    maxLng: lng + lngDelta,
+  };
+}
+
 /** Public listing with category/city/postal/geo/text filters + pagination. */
 async function list(query: ListProviderQuery) {
   const baseWhere = buildBaseWhere(query);
 
   // "Nearest" needs the customer's coordinates — distance isn't a stored
-  // column, so it's computed and sorted in-app rather than by the database.
+  // column, so the precise haversine calc still happens in-app, but only for
+  // providers inside a bounding box the database filters cheaply (indexed),
+  // instead of fetching and computing distance for every provider.
   if (query.sort === 'nearest' && query.lat != null && query.lng != null) {
+    const lat = query.lat;
+    const lng = query.lng;
     const where = { ...baseWhere };
     if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
     if (query.postalCode) where.postalCode = { startsWith: query.postalCode };
 
-    const all = await prisma.provider.findMany({ where, include: publicInclude });
-    const withDistance = all.map((p) => ({
+    const box = boundingBox(lat, lng, NEARBY_RADIUS_KM);
+    const nearbyWhere: Prisma.ProviderWhereInput = {
+      ...where,
+      latitude: { gte: box.minLat, lte: box.maxLat },
+      longitude: { gte: box.minLng, lte: box.maxLng },
+    };
+
+    let candidates = await prisma.provider.findMany({ where: nearbyWhere, include: publicInclude });
+    // Nothing within the box (a sparse area with no nearby listings) — fall
+    // back to a full scan so the customer still sees their least-far
+    // options, instead of an empty result. Rare in practice, so the
+    // expensive path only runs when the cheap one truly comes up empty.
+    if (candidates.length === 0) {
+      candidates = await prisma.provider.findMany({ where, include: publicInclude });
+    }
+
+    const withDistance = candidates.map((p) => ({
       ...p,
       distanceKm:
         p.latitude != null && p.longitude != null
-          ? Math.round(haversineKm(query.lat!, query.lng!, p.latitude, p.longitude) * 10) / 10
+          ? Math.round(haversineKm(lat, lng, p.latitude, p.longitude) * 10) / 10
           : null,
     }));
     // Businesses with no set location sort after those with a known distance.
@@ -160,7 +197,29 @@ async function list(query: ListProviderQuery) {
   };
 }
 
-async function getById(id: string) {
+/**
+ * Distinct customers from `postalCode` who've completed a booking or order
+ * with this provider — "N people from your area used this provider" social
+ * proof. Self-inclusion (the viewer's own past visits) isn't excluded since
+ * this endpoint is public/anonymous-friendly and has no reliable viewer identity.
+ */
+async function areaUsageCount(providerId: string, postalCode: string): Promise<number> {
+  const [bookingUsers, orderUsers] = await Promise.all([
+    prisma.booking.findMany({
+      where: { providerId, status: 'COMPLETED', user: { postalCode } },
+      select: { userId: true },
+      distinct: ['userId'],
+    }),
+    prisma.order.findMany({
+      where: { providerId, status: 'COMPLETED', user: { postalCode } },
+      select: { userId: true },
+      distinct: ['userId'],
+    }),
+  ]);
+  return new Set([...bookingUsers.map((b) => b.userId), ...orderUsers.map((o) => o.userId)]).size;
+}
+
+async function getById(id: string, viewerPostalCode?: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const provider = await prisma.provider.findUnique({
@@ -174,7 +233,9 @@ async function getById(id: string) {
     },
   });
   if (!provider || !provider.isActive) throw ApiError.notFound('Provider not found');
-  return provider;
+
+  const areaCount = viewerPostalCode ? await areaUsageCount(id, viewerPostalCode) : null;
+  return { ...provider, areaCount };
 }
 
 /**

@@ -36,6 +36,12 @@ enum ReminderRepeat {
   YEARLY
 }
 
+enum ReminderStatus {
+  PENDING
+  DONE
+  MISSED
+}
+
 enum NotificationType {
   ORDER_PLACED // provider: a customer placed an order
   ORDER_STATUS // customer: their order's status changed
@@ -226,6 +232,9 @@ model Provider {
   @@index([categoryId])
   @@index([subcategoryId])
   @@index([city])
+  // Lets "nearest" search filter to a bounding box in the database instead of
+  // fetching every provider and computing distance for all of them in-app.
+  @@index([latitude, longitude])
   @@index([isActive])
 }
 
@@ -351,8 +360,10 @@ model Booking {
 }
 
 // A customer's personal reminder — a manual renewal/service (car insurance,
-// bike service, warranty…) or a follow-up to a booking. `repeat` rolls the due
-// date forward when marked done; `providerId` optionally links a business.
+// bike service, warranty…) or a follow-up to a booking. Each row is ONE
+// occurrence: responding (Done/Missed) to a repeating reminder spawns a
+// fresh row for the next occurrence instead of rolling this one forward, so
+// every past occurrence stays visible with its own individual outcome.
 model Reminder {
   id               String         @id @default(cuid())
   userId           String
@@ -360,15 +371,20 @@ model Reminder {
   title            String
   // Free-form category: vehicle | insurance | health | document | home | appointment | other
   type             String         @default("other")
-  // dueDate = the next occurrence we remind on (the start date, rolled forward).
+  // This occurrence's date — fixed once created, never rolled forward.
   dueDate          DateTime
-  // Optional cap: a repeating reminder stops after this date.
+  // Optional cap: a repeating series stops spawning new occurrences after this date.
   endDate          DateTime?
   repeat           ReminderRepeat @default(NONE)
   remindDaysBefore Int            @default(1)
   note             String?
   providerId       String?
-  completedAt      DateTime?
+  status           ReminderStatus @default(PENDING)
+  // When the customer marked this occurrence Done or Missed.
+  respondedAt      DateTime?
+  // The occurrence this one was spawned from (repeating series), if any —
+  // lets the two be found from either side without a hard FK/relation.
+  previousOccurrenceId String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 

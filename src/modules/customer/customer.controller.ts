@@ -15,7 +15,8 @@ const listProviders = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getProvider = asyncHandler(async (req: Request, res: Response) => {
-  const provider = await providerService.getById(req.params.id);
+  const postalCode = typeof req.query.postalCode === 'string' ? req.query.postalCode : undefined;
+  const provider = await providerService.getById(req.params.id, postalCode);
   sendSuccess(res, provider);
 });
 

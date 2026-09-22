@@ -27,3 +27,9 @@ export const updateReminderSchema = z.object({
     note: z.string().max(500).nullable().optional(),
   }),
 });
+
+export const respondReminderSchema = z.object({
+  body: z.object({
+    status: z.enum(['DONE', 'MISSED']),
+  }),
+});

@@ -1,4 +1,4 @@
-import { Prisma, ReminderRepeat } from '@prisma/client';
+import { Prisma, ReminderRepeat, ReminderStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 
@@ -96,20 +96,44 @@ async function remove(userId: string, id: string) {
   return { id };
 }
 
-/** Marks done — repeating reminders roll forward (until the end date), one-time complete. */
-async function markDone(userId: string, id: string) {
+/**
+ * Records Done/Missed for this occurrence. The first time this fires on a
+ * repeating reminder, it spawns a fresh row for the next occurrence (this
+ * row's own dueDate never changes) — so every past occurrence stays visible
+ * with its own individual outcome. Calling this again on an already-responded
+ * occurrence (Done ↔ Missed) just updates its status — it never spawns a
+ * second next-occurrence.
+ */
+async function respond(userId: string, id: string, status: Extract<ReminderStatus, 'DONE' | 'MISSED'>) {
   const reminder = await getOwned(userId, id);
-  if (reminder.repeat !== 'NONE') {
+  const wasPending = reminder.status === 'PENDING';
+
+  const updated = await prisma.reminder.update({
+    where: { id },
+    data: { status, respondedAt: new Date() },
+  });
+
+  if (wasPending && reminder.repeat !== 'NONE') {
     const next = advance(reminder.dueDate, reminder.repeat);
-    // Past the end date → stop repeating and complete it.
     if (!reminder.endDate || next <= reminder.endDate) {
-      return prisma.reminder.update({
-        where: { id },
-        data: { dueDate: next, completedAt: null },
+      await prisma.reminder.create({
+        data: {
+          userId,
+          title: reminder.title,
+          type: reminder.type,
+          dueDate: next,
+          endDate: reminder.endDate,
+          repeat: reminder.repeat,
+          remindDaysBefore: reminder.remindDaysBefore,
+          note: reminder.note,
+          providerId: reminder.providerId,
+          previousOccurrenceId: id,
+        },
       });
     }
   }
-  return prisma.reminder.update({ where: { id }, data: { completedAt: new Date() } });
+
+  return updated;
 }
 
-export const reminderService = { create, listMine, update, remove, markDone };
+export const reminderService = { create, listMine, update, remove, respond };

@@ -28,10 +28,10 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, result, 'Reminder deleted');
 });
 
-const markDone = asyncHandler(async (req: Request, res: Response) => {
+const respond = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
-  const reminder = await reminderService.markDone(req.user.sub, req.params.id);
+  const reminder = await reminderService.respond(req.user.sub, req.params.id, req.body.status);
   sendSuccess(res, reminder, 'Reminder updated');
 });
 
-export const reminderController = { create, list, update, remove, markDone };
+export const reminderController = { create, list, update, remove, respond };
