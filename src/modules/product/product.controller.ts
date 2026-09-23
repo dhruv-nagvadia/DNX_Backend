@@ -3,6 +3,7 @@ import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
 import { productService } from './product.service';
+import { SearchProductQuery } from './product.types';
 
 // `:id` in the route is the providerId (business id).
 const list = asyncHandler(async (req: Request, res: Response) => {
@@ -34,4 +35,10 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, null, 'Product deleted');
 });
 
-export const productController = { list, create, update, remove };
+/** Public product search — matches by name, backing the mobile app's "Product" search type. */
+const searchPublic = asyncHandler(async (req: Request, res: Response) => {
+  const result = await productService.searchPublic(req.query as unknown as SearchProductQuery);
+  sendSuccess(res, result);
+});
+
+export const productController = { list, create, update, remove, searchPublic };

@@ -27,3 +27,22 @@ export interface UpdateProductInput {
   imageUrl?: string;
   isActive?: boolean;
 }
+
+export type ProductSort = 'rating' | 'reviews' | 'newest' | 'nearest';
+
+export interface SearchProductQuery {
+  search?: string;
+  // Products have no category of their own — filters by the selling store's category.
+  categorySlug?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  minRating?: number;
+  // Only products from a store that's open right now.
+  openNow?: boolean;
+  sort?: ProductSort;
+  lat?: number;
+  lng?: number;
+  page: number;
+  limit: number;
+}

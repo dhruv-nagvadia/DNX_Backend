@@ -36,10 +36,21 @@ function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
   if (query.type) where.type = query.type;
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) {
-    where.OR = [
-      { businessName: { contains: query.search, mode: 'insensitive' } },
-      { description: { contains: query.search, mode: 'insensitive' } },
-    ];
+    if (query.type === 'SERVICE') {
+      // "Service" search matches what the business offers (e.g. "haircut"),
+      // not the business's own name.
+      where.services = {
+        some: { isActive: true, name: { contains: query.search, mode: 'insensitive' } },
+      };
+    } else {
+      // Business-name search — the mobile app's "Business" and "All" search
+      // types call this by name only; "All" separately searches services and
+      // products via their own endpoints and merges the results client-side.
+      where.OR = [
+        { businessName: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
   }
   // Open right now, per the weekly schedule (date-specific overrides aren't
   // considered here — this is a quick filter, not the booking-time check).

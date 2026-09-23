@@ -6,6 +6,10 @@ import { customerController } from './customer.controller';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { validateCouponSchema } from '@/modules/coupon/coupon.validation';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
+import { productController } from '@/modules/product/product.controller';
+import { searchProductSchema } from '@/modules/product/product.validation';
+import { serviceController } from '@/modules/service/service.controller';
+import { searchServiceSchema } from '@/modules/service/service.validation';
 import { bookingRoutes } from '@/modules/booking/booking.routes';
 import { orderRoutes } from '@/modules/order/order.routes';
 import { cartRoutes } from '@/modules/cart/cart.routes';
@@ -31,6 +35,8 @@ customerRoutes.get('/providers', validate(listProviderSchema), customerControlle
 customerRoutes.get('/providers/:id/booked-slots', customerController.bookedSlots);
 customerRoutes.get('/providers/:id/reviews', reviewController.listPublic);
 customerRoutes.get('/providers/:id/coupons', couponController.listPublic);
+customerRoutes.get('/products', validate(searchProductSchema), productController.searchPublic);
+customerRoutes.get('/services', validate(searchServiceSchema), serviceController.searchPublic);
 customerRoutes.get('/products/:id/reviews', reviewController.listProductReviews);
 customerRoutes.get('/providers/:id', customerController.getProvider);
 

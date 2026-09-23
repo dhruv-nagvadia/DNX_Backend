@@ -33,7 +33,13 @@ const bookingSelect = {
   travelFeeMinor: true,
   service: { select: { id: true, name: true, durationMin: true, travelRequired: true } },
   provider: {
-    select: { id: true, businessName: true, images: true, category: { select: { slug: true, name: true } } },
+    select: {
+      id: true,
+      businessName: true,
+      images: true,
+      phone: true,
+      category: { select: { slug: true, name: true } },
+    },
   },
   review: { select: { id: true, rating: true } },
 } satisfies Prisma.BookingSelect;

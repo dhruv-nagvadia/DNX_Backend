@@ -22,3 +22,22 @@ export interface UpdateServiceInput {
   travelBaseFee?: number;
   travelPerKm?: number;
 }
+
+export type ServiceSort = 'rating' | 'reviews' | 'newest' | 'nearest';
+
+export interface SearchServiceQuery {
+  search?: string;
+  categorySlug?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  // A service has no rating of its own — filters/sorts by the offering business's.
+  minRating?: number;
+  // Only services from a business that's open right now.
+  openNow?: boolean;
+  sort?: ServiceSort;
+  lat?: number;
+  lng?: number;
+  page: number;
+  limit: number;
+}
