@@ -66,6 +66,16 @@ const resetPasswordCustomer = asyncHandler(async (req: Request, res: Response) =
   sendSuccess(res, null, 'Password reset');
 });
 
+const requestPasswordResetProvider = asyncHandler(async (req: Request, res: Response) => {
+  await authService.requestPasswordReset(req.body.email, Role.PROVIDER);
+  sendSuccess(res, null, 'If that email is registered, a reset code has been sent');
+});
+
+const resetPasswordProvider = asyncHandler(async (req: Request, res: Response) => {
+  await authService.resetPassword(req.body.email, Role.PROVIDER, req.body.otp, req.body.newPassword);
+  sendSuccess(res, null, 'Password reset');
+});
+
 const deleteAccount = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   await authService.deleteAccount(req.user.sub, req.body.password);
@@ -83,5 +93,7 @@ export const authController = {
   changePassword,
   requestPasswordResetCustomer,
   resetPasswordCustomer,
+  requestPasswordResetProvider,
+  resetPasswordProvider,
   deleteAccount,
 };

@@ -24,7 +24,12 @@ import { replyToReviewSchema } from '@/modules/review/review.validation';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { createCouponSchema, updateCouponSchema } from '@/modules/coupon/coupon.validation';
 import { authController } from '@/modules/auth/auth.controller';
-import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
+import {
+  loginSchema,
+  registerSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
+} from '@/modules/auth/auth.validation';
 
 /**
  * Provider-facing API (used by the web business dashboard).
@@ -48,6 +53,18 @@ providerRoutes.post(
   authLimiter,
   validate(loginSchema),
   authController.loginProvider,
+);
+providerRoutes.post(
+  '/auth/forgot-password',
+  authLimiter,
+  validate(requestPasswordResetSchema),
+  authController.requestPasswordResetProvider,
+);
+providerRoutes.post(
+  '/auth/reset-password',
+  authLimiter,
+  validate(resetPasswordSchema),
+  authController.resetPasswordProvider,
 );
 
 // Everything below requires a logged-in PROVIDER.
