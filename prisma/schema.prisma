@@ -487,8 +487,26 @@ model Product {
   reviews     ProductReview[]
   // Coupons scoped to this specific product.
   coupons     Coupon[]
+  // Manual stock changes outside the normal order flow (offline sales,
+  // restocks, damage/loss) — an audit trail alongside the plain `stockQty`.
+  stockAdjustments StockAdjustment[]
 
   @@index([providerId])
+}
+
+// A manual stock change made by the provider (not from an in-app order) —
+// e.g. an offline/in-person sale, a restock delivery, or damaged/lost goods.
+model StockAdjustment {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Positive = stock added, negative = stock removed, in the product's base unit.
+  delta     Float
+  reason    String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([productId])
 }
 
 // A discount code a STORE business offers customers at checkout.

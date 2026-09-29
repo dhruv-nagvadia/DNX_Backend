@@ -48,3 +48,11 @@ export const updateProductSchema = z.object({
     isActive: z.boolean().optional(),
   }),
 });
+
+export const adjustStockSchema = z.object({
+  body: z.object({
+    delta: z.coerce.number().refine((n) => n !== 0, 'Enter a non-zero amount'),
+    reason: z.enum(['SALE', 'RESTOCK', 'DAMAGED', 'OTHER']).optional(),
+    note: z.string().max(200).optional(),
+  }),
+});

@@ -15,7 +15,11 @@ import {
 import { serviceController } from '@/modules/service/service.controller';
 import { createServiceSchema, updateServiceSchema } from '@/modules/service/service.validation';
 import { productController } from '@/modules/product/product.controller';
-import { createProductSchema, updateProductSchema } from '@/modules/product/product.validation';
+import {
+  createProductSchema,
+  updateProductSchema,
+  adjustStockSchema,
+} from '@/modules/product/product.validation';
 import { orderController } from '@/modules/order/order.controller';
 import { updateOrderStatusSchema } from '@/modules/order/order.validation';
 import { updateBookingStatusSchema } from '@/modules/booking/booking.validation';
@@ -160,6 +164,13 @@ providerRoutes.patch(
   productController.update,
 );
 providerRoutes.delete('/businesses/:id/products/:productId', productController.remove);
+// Manual stock change (offline sale, restock, damaged/lost) — separate from
+// the full product edit form.
+providerRoutes.patch(
+  '/businesses/:id/products/:productId/stock',
+  validate(adjustStockSchema),
+  productController.adjustStock,
+);
 
 // Discount coupons within a business
 providerRoutes.get('/businesses/:id/coupons', couponController.list);

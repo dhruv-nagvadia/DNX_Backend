@@ -35,10 +35,21 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, null, 'Product deleted');
 });
 
+const adjustStock = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const product = await productService.adjustStock(
+    req.user.sub,
+    req.params.id,
+    req.params.productId,
+    req.body,
+  );
+  sendSuccess(res, product, 'Stock updated');
+});
+
 /** Public product search — matches by name, backing the mobile app's "Product" search type. */
 const searchPublic = asyncHandler(async (req: Request, res: Response) => {
   const result = await productService.searchPublic(req.query as unknown as SearchProductQuery);
   sendSuccess(res, result);
 });
 
-export const productController = { list, create, update, remove, searchPublic };
+export const productController = { list, create, update, remove, adjustStock, searchPublic };

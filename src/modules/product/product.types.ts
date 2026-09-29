@@ -28,6 +28,15 @@ export interface UpdateProductInput {
   isActive?: boolean;
 }
 
+export type StockAdjustmentReason = 'SALE' | 'RESTOCK' | 'DAMAGED' | 'OTHER';
+
+export interface AdjustStockInput {
+  // Positive = stock added, negative = stock removed, in the product's base unit.
+  delta: number;
+  reason?: StockAdjustmentReason;
+  note?: string;
+}
+
 export type ProductSort = 'rating' | 'reviews' | 'newest' | 'nearest';
 
 export interface SearchProductQuery {

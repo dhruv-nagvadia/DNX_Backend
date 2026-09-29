@@ -2,7 +2,12 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { haversineKm } from '@/utils/geo';
-import { CreateProductInput, SearchProductQuery, UpdateProductInput } from './product.types';
+import {
+  AdjustStockInput,
+  CreateProductInput,
+  SearchProductQuery,
+  UpdateProductInput,
+} from './product.types';
 
 /** Ensures the business exists and is owned by the user; returns it. */
 async function assertOwnedProvider(userId: string, providerId: string) {
@@ -83,6 +88,35 @@ async function remove(userId: string, providerId: string, productId: string) {
   await assertOwnedProvider(userId, providerId);
   await assertProductInProvider(providerId, productId);
   await prisma.product.delete({ where: { id: productId } });
+}
+
+/**
+ * Manual stock change outside the normal order flow — an offline/in-person
+ * sale, a restock delivery, or damaged/lost goods. Recorded as a
+ * StockAdjustment (audit trail) alongside updating the product's own
+ * `stockQty`, in one transaction.
+ */
+async function adjustStock(
+  userId: string,
+  providerId: string,
+  productId: string,
+  input: AdjustStockInput,
+) {
+  await assertOwnedProvider(userId, providerId);
+  const product = await assertProductInProvider(providerId, productId);
+
+  const nextStock = product.stockQty + input.delta;
+  if (nextStock < 0) {
+    throw ApiError.badRequest(`Only ${product.stockQty} ${product.unit} in stock`);
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.product.update({ where: { id: productId }, data: { stockQty: nextStock } }),
+    prisma.stockAdjustment.create({
+      data: { productId, delta: input.delta, reason: input.reason, note: input.note },
+    }),
+  ]);
+  return updated;
 }
 
 // Public search views join through the selling store, so the customer sees
@@ -226,4 +260,11 @@ async function searchPublic(query: SearchProductQuery) {
   };
 }
 
-export const productService = { listForOwner, create, update, remove, searchPublic };
+export const productService = {
+  listForOwner,
+  create,
+  update,
+  remove,
+  adjustStock,
+  searchPublic,
+};
