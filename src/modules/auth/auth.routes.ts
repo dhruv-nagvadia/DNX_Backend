@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '@/middlewares/auth.middleware';
 import { validate } from '@/middlewares/validate';
 import { authController } from './auth.controller';
-import { changePasswordSchema, updateMeSchema } from './auth.validation';
+import { changePasswordSchema, deleteAccountSchema, updateMeSchema } from './auth.validation';
 
 /**
  * Shared, token-based auth only. Register/login are role-scoped and live under
@@ -18,4 +18,10 @@ authRoutes.post(
   requireAuth,
   validate(changePasswordSchema),
   authController.changePassword,
+);
+authRoutes.delete(
+  '/me',
+  requireAuth,
+  validate(deleteAccountSchema),
+  authController.deleteAccount,
 );

@@ -1,13 +1,17 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { Prisma, Role } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { env } from '@/config';
+import { sendEmail } from '@/lib/email';
 import { ApiError } from '@/utils/ApiError';
 import { AuthResult, AuthTokens, LoginInput, RegisterInput } from './auth.types';
 import { AuthPayload } from '@/middlewares/auth.middleware';
 
 const SALT_ROUNDS = 10;
+const OTP_EXPIRY_MIN = 10;
+const MAX_OTP_ATTEMPTS = 5;
 
 function signTokens(payload: AuthPayload): AuthTokens {
   const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -168,4 +172,110 @@ async function changePassword(userId: string, currentPassword: string, newPasswo
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
 }
 
-export const authService = { register, login, refresh, me, updateMe, changePassword };
+const otpEmailHtml = (otp: string) => `
+  <p>Your DNX verification code is:</p>
+  <p style="font-size:28px;font-weight:700;letter-spacing:6px">${otp}</p>
+  <p>This code expires in ${OTP_EXPIRY_MIN} minutes. If you didn't request this, you can ignore this email.</p>
+`;
+
+/**
+ * Emails a one-time reset code. Always resolves the same way whether or not
+ * the account exists (nothing to check on the caller side), so this can't be
+ * used to discover which emails are registered.
+ */
+async function requestPasswordReset(email: string, role: Role): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email_role: { email, role } } });
+  if (!user || !user.isActive) return;
+
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const resetOtpHash = await bcrypt.hash(otp, SALT_ROUNDS);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      resetOtpHash,
+      resetOtpExpiresAt: new Date(Date.now() + OTP_EXPIRY_MIN * 60_000),
+      resetOtpAttempts: 0,
+    },
+  });
+
+  await sendEmail(user.email, 'Your DNX password reset code', otpEmailHtml(otp), otp);
+}
+
+/** Verifies the emailed code and sets a new password. */
+async function resetPassword(
+  email: string,
+  role: Role,
+  otp: string,
+  newPassword: string,
+): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email_role: { email, role } } });
+  if (!user || !user.resetOtpHash || !user.resetOtpExpiresAt) {
+    throw ApiError.badRequest('Invalid or expired code');
+  }
+  if (user.resetOtpExpiresAt < new Date()) {
+    throw ApiError.badRequest('This code has expired. Request a new one.');
+  }
+  if (user.resetOtpAttempts >= MAX_OTP_ATTEMPTS) {
+    throw ApiError.badRequest('Too many attempts. Request a new code.');
+  }
+
+  const ok = await bcrypt.compare(otp, user.resetOtpHash);
+  if (!ok) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { resetOtpAttempts: { increment: 1 } },
+    });
+    throw ApiError.badRequest('Incorrect code');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, resetOtpHash: null, resetOtpExpiresAt: null, resetOtpAttempts: 0 },
+  });
+}
+
+/**
+ * Deletes the signed-in account. Hard-deleting is unsafe — bookings, orders
+ * and reviews reference the user without cascading (kept deliberately, as
+ * business/accounting history), so a raw delete would fail with a foreign-key
+ * error for any user who's ever booked or ordered something. Soft-delete
+ * instead: deactivate and scrub personal fields, freeing the email (the
+ * @@unique([email, role]) constraint still applies to this now-inactive row)
+ * so the person can register again later if they choose to.
+ */
+async function deleteAccount(userId: string, password: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw ApiError.notFound('User not found');
+
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) throw ApiError.unauthorized('Incorrect password');
+
+  const scrambledPasswordHash = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      isActive: false,
+      email: `deleted-${user.id}@dnx.invalid`,
+      phone: null,
+      fullName: 'Deleted user',
+      avatarUrl: null,
+      passwordHash: scrambledPasswordHash,
+      resetOtpHash: null,
+      resetOtpExpiresAt: null,
+      resetOtpAttempts: 0,
+    },
+  });
+}
+
+export const authService = {
+  register,
+  login,
+  refresh,
+  me,
+  updateMe,
+  changePassword,
+  requestPasswordReset,
+  resetPassword,
+  deleteAccount,
+};

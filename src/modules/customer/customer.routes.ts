@@ -18,7 +18,12 @@ import { paymentRoutes } from '@/modules/payment/payment.routes';
 import { addressRoutes } from '@/modules/address/address.routes';
 import { reviewController } from '@/modules/review/review.controller';
 import { authController } from '@/modules/auth/auth.controller';
-import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
+import {
+  loginSchema,
+  registerSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
+} from '@/modules/auth/auth.validation';
 
 /**
  * Customer-facing API (used by the mobile app).
@@ -29,6 +34,16 @@ export const customerRoutes = Router();
 // Customer auth (public)
 customerRoutes.post('/auth/register', validate(registerSchema), authController.registerCustomer);
 customerRoutes.post('/auth/login', validate(loginSchema), authController.loginCustomer);
+customerRoutes.post(
+  '/auth/forgot-password',
+  validate(requestPasswordResetSchema),
+  authController.requestPasswordResetCustomer,
+);
+customerRoutes.post(
+  '/auth/reset-password',
+  validate(resetPasswordSchema),
+  authController.resetPasswordCustomer,
+);
 
 // Public discovery
 customerRoutes.get('/providers', validate(listProviderSchema), customerController.listProviders);

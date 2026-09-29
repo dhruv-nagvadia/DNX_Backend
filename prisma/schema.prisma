@@ -114,6 +114,12 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // "Forgot password" — a hashed one-time code emailed to the account,
+  // valid for a short window. Cleared once used or superseded.
+  resetOtpHash      String?
+  resetOtpExpiresAt DateTime?
+  resetOtpAttempts  Int       @default(0)
+
   // A provider user can own multiple businesses.
   providers Provider[]
   // Bookings this user has made as a customer.

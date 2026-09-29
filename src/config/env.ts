@@ -29,6 +29,12 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  // Email (Resend), for password-reset codes. Without a key, sends are
+  // skipped with a console warning instead of failing — lets the app run
+  // before you've signed up for Resend and added a real key.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('DNX <onboarding@resend.dev>'),
 });
 
 const parsed = envSchema.safeParse(process.env);

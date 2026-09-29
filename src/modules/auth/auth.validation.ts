@@ -45,3 +45,23 @@ export const changePasswordSchema = z.object({
     newPassword: z.string().min(8, 'Password must be at least 8 characters'),
   }),
 });
+
+export const requestPasswordResetSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    email: z.string().email(),
+    otp: z.string().length(6, 'Enter the 6-digit code'),
+    newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  }),
+});
+
+export const deleteAccountSchema = z.object({
+  body: z.object({
+    password: z.string().min(1),
+  }),
+});

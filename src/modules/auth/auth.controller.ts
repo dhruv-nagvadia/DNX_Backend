@@ -53,6 +53,25 @@ const changePassword = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, null, 'Password updated');
 });
 
+// "Always succeeds" response regardless of whether the email is registered —
+// the service already no-ops silently for an unknown/inactive account, so
+// the controller never has anything account-specific to branch on here.
+const requestPasswordResetCustomer = asyncHandler(async (req: Request, res: Response) => {
+  await authService.requestPasswordReset(req.body.email, Role.USER);
+  sendSuccess(res, null, 'If that email is registered, a reset code has been sent');
+});
+
+const resetPasswordCustomer = asyncHandler(async (req: Request, res: Response) => {
+  await authService.resetPassword(req.body.email, Role.USER, req.body.otp, req.body.newPassword);
+  sendSuccess(res, null, 'Password reset');
+});
+
+const deleteAccount = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  await authService.deleteAccount(req.user.sub, req.body.password);
+  sendSuccess(res, null, 'Account deleted');
+});
+
 export const authController = {
   registerCustomer,
   loginCustomer,
@@ -62,4 +81,7 @@ export const authController = {
   me,
   updateMe,
   changePassword,
+  requestPasswordResetCustomer,
+  resetPasswordCustomer,
+  deleteAccount,
 };
