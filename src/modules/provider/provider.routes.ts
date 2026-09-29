@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { validate } from '@/middlewares/validate';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { authLimiter } from '@/middlewares/rateLimit';
 import { imageUpload } from '@/middlewares/upload';
 import { providerController } from './provider.controller';
 import {
@@ -35,9 +36,19 @@ import { loginSchema, registerSchema } from '@/modules/auth/auth.validation';
  */
 export const providerRoutes = Router();
 
-// Provider auth (public)
-providerRoutes.post('/auth/register', validate(registerSchema), authController.registerProvider);
-providerRoutes.post('/auth/login', validate(loginSchema), authController.loginProvider);
+// Provider auth (public) — rate-limited, same as customer auth.
+providerRoutes.post(
+  '/auth/register',
+  authLimiter,
+  validate(registerSchema),
+  authController.registerProvider,
+);
+providerRoutes.post(
+  '/auth/login',
+  authLimiter,
+  validate(loginSchema),
+  authController.loginProvider,
+);
 
 // Everything below requires a logged-in PROVIDER.
 providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));

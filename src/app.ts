@@ -8,6 +8,7 @@ import { apiRouter } from '@/routes';
 import { notFound } from '@/middlewares/notFound';
 import { errorHandler } from '@/middlewares/errorHandler';
 import { UPLOAD_DIR } from '@/middlewares/upload';
+import { apiLimiter } from '@/middlewares/rateLimit';
 
 export function createApp(): Application {
   const app = express();
@@ -45,7 +46,7 @@ export function createApp(): Application {
   app.get('/health', (_req, res) => res.json({ success: true, message: 'ok' }));
 
   // All versioned API routes
-  app.use('/api/v1', apiRouter);
+  app.use('/api/v1', apiLimiter, apiRouter);
 
   // 404 + centralized error handling (must be last)
   app.use(notFound);

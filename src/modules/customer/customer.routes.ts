@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { validate } from '@/middlewares/validate';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { authLimiter } from '@/middlewares/rateLimit';
 import { customerController } from './customer.controller';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { validateCouponSchema } from '@/modules/coupon/coupon.validation';
@@ -31,16 +32,29 @@ import {
  */
 export const customerRoutes = Router();
 
-// Customer auth (public)
-customerRoutes.post('/auth/register', validate(registerSchema), authController.registerCustomer);
-customerRoutes.post('/auth/login', validate(loginSchema), authController.loginCustomer);
+// Customer auth (public) — rate-limited, since these are the classic
+// brute-force / credential-stuffing / OTP-spam targets.
+customerRoutes.post(
+  '/auth/register',
+  authLimiter,
+  validate(registerSchema),
+  authController.registerCustomer,
+);
+customerRoutes.post(
+  '/auth/login',
+  authLimiter,
+  validate(loginSchema),
+  authController.loginCustomer,
+);
 customerRoutes.post(
   '/auth/forgot-password',
+  authLimiter,
   validate(requestPasswordResetSchema),
   authController.requestPasswordResetCustomer,
 );
 customerRoutes.post(
   '/auth/reset-password',
+  authLimiter,
   validate(resetPasswordSchema),
   authController.resetPasswordCustomer,
 );
