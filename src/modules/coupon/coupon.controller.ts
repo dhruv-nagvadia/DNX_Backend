@@ -2,7 +2,9 @@ import { Request, Response } from 'express';
 import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
+import { prisma } from '@/lib/prisma';
 import { couponService } from './coupon.service';
+import { platformCouponService } from '@/modules/platformCoupon/platformCoupon.service';
 
 // ── Provider (business dashboard) ─────────────────────────────────────────────
 const list = asyncHandler(async (req: Request, res: Response) => {
@@ -35,14 +37,34 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // ── Customer (checkout) ───────────────────────────────────────────────────────
+// Falls back to a platform-wide code when it isn't one of this business's own
+// — so a customer typing a platform coupon here previews exactly what booking
+// or order creation will later apply, instead of a confusing "not valid" error.
 const validateForCustomer = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
   const { providerId, code, subtotalMinor, serviceId, items } = req.body;
-  const result = await couponService.validateForCustomer(providerId, code, {
-    subtotalMinor,
-    serviceId,
-    items,
+  const provider = await prisma.provider.findUnique({
+    where: { id: providerId },
+    select: { categoryId: true },
   });
-  sendSuccess(res, result, 'Coupon applied');
+  const resolved = await platformCouponService.resolveCheckoutCoupon(
+    providerId,
+    code,
+    { subtotalMinor, serviceId, items, categoryId: provider?.categoryId },
+    serviceId ? 'BOOKING' : 'ORDER',
+  );
+  sendSuccess(
+    res,
+    {
+      code: resolved.code,
+      description: resolved.description,
+      discountType: resolved.discountType,
+      discountValue: resolved.discountValue,
+      discountMinor: resolved.discountMinor,
+      finalMinor: Math.max(0, subtotalMinor - resolved.discountMinor),
+    },
+    'Coupon applied',
+  );
 });
 
 /** Public list of a business's usable coupons (route: /customer/providers/:id/coupons). */

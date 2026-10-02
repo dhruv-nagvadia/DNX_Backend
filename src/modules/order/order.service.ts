@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { isRazorpayConfigured, refundPayment } from '@/lib/razorpay';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
-import { couponService } from '@/modules/coupon/coupon.service';
+import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import { CreateOrderInput } from './order.types';
 
 // Customer-facing copy for each order status the provider can move an order to.
@@ -82,7 +82,7 @@ export interface OrderPlan {
   lines: OrderLine[];
   subtotal: number;
   discountMinor: number;
-  couponId: string | null;
+  appliedCoupon: ResolvedCheckoutCoupon | null;
   couponCode: string | null;
   total: number; // subtotal − discount
   depositMinor: number; // only meaningful for PARTIAL
@@ -136,27 +136,23 @@ async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
   });
 
   // Apply a coupon (if any) to the subtotal; the discount comes off the total.
+  // Checked against this store's own coupons first, then platform-wide ones.
   let discountMinor = 0;
-  let couponId: string | null = null;
+  let appliedCoupon: ResolvedCheckoutCoupon | null = null;
   let couponCode: string | null = null;
   if (input.couponCode) {
-    const coupon = await prisma.coupon.findUnique({
-      where: {
-        providerId_code: {
-          providerId: provider.id,
-          code: couponService.normalizeCode(input.couponCode),
-        },
+    appliedCoupon = await platformCouponService.resolveCheckoutCoupon(
+      provider.id,
+      input.couponCode,
+      {
+        subtotalMinor: subtotal,
+        items: lines.map((l) => ({ productId: l.productId, lineTotalMinor: l.lineTotal })),
+        categoryId: provider.categoryId,
       },
-    });
-    if (!coupon) throw ApiError.badRequest('That code isn’t valid for this store.');
-    const evaluated = couponService.evaluateCoupon(coupon, {
-      subtotalMinor: subtotal,
-      items: lines.map((l) => ({ productId: l.productId, lineTotalMinor: l.lineTotal })),
-    });
-    if (evaluated.error) throw ApiError.badRequest(evaluated.error);
-    discountMinor = evaluated.discountMinor;
-    couponId = coupon.id;
-    couponCode = coupon.code;
+      'ORDER',
+    );
+    discountMinor = appliedCoupon.discountMinor;
+    couponCode = appliedCoupon.code;
   }
 
   const total = subtotal - discountMinor;
@@ -173,7 +169,7 @@ async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
     lines,
     subtotal,
     discountMinor,
-    couponId,
+    appliedCoupon,
     couponCode,
     total,
     depositMinor,
@@ -246,11 +242,8 @@ async function finalizeOrderPlan(
     await tx.cartItem.deleteMany({ where: { userId, productId: { in: productIds } } });
 
     // Count the coupon redemption.
-    if (plan.couponId) {
-      await tx.coupon.update({
-        where: { id: plan.couponId },
-        data: { usedCount: { increment: 1 } },
-      });
+    if (plan.appliedCoupon) {
+      await platformCouponService.redeem(tx, plan.appliedCoupon);
     }
 
     return created;

@@ -3,6 +3,7 @@ import { authRoutes } from '@/modules/auth/auth.routes';
 import { categoryRoutes } from '@/modules/category/category.routes';
 import { providerRoutes } from '@/modules/provider/provider.routes';
 import { customerRoutes } from '@/modules/customer/customer.routes';
+import { adminRoutes } from '@/modules/admin/admin.routes';
 import { paymentWebhookRoutes } from '@/modules/payment/payment.routes';
 import { notificationRoutes } from '@/modules/notification/notification.routes';
 import { geoRoutes } from '@/modules/geo/geo.routes';
@@ -12,6 +13,7 @@ import { geoRoutes } from '@/modules/geo/geo.routes';
  *   /auth, /categories → shared (both apps)
  *   /provider          → provider web dashboard (PROVIDER role)
  *   /customer          → customer mobile app (browse + bookings)
+ *   /admin             → unlisted admin console inside the provider web app (ADMIN role)
  */
 export const apiRouter = Router();
 
@@ -25,3 +27,4 @@ apiRouter.use('/geo', geoRoutes);
 // Audience-specific
 apiRouter.use('/provider', providerRoutes);
 apiRouter.use('/customer', customerRoutes);
+apiRouter.use('/admin', adminRoutes);

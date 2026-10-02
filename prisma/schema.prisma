@@ -62,6 +62,12 @@ enum CouponScope {
   PRODUCT // only applies to one specific product in the cart
 }
 
+enum PlatformCouponAppliesTo {
+  ANY // usable for both service bookings and store orders
+  BOOKING // service bookings only
+  ORDER // store orders only
+}
+
 enum PaymentStatus {
   PENDING
   PARTIAL
@@ -159,9 +165,10 @@ model Category {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  providers     Provider[]
-  services      Service[]
-  subcategories Subcategory[]
+  providers       Provider[]
+  services        Service[]
+  subcategories   Subcategory[]
+  platformCoupons PlatformCoupon[]
 
   @@index([isActive])
 }
@@ -550,6 +557,41 @@ model Coupon {
   @@index([providerId])
   @@index([serviceId])
   @@index([productId])
+}
+
+// A platform-wide discount code, created by an ADMIN (not tied to one
+// provider) — e.g. a launch promo usable across any business. Redeemed the
+// same way as a per-provider Coupon, just looked up by a globally unique code
+// instead of (providerId, code).
+model PlatformCoupon {
+  id          String                  @id @default(cuid())
+  code        String                  @unique
+  description String?
+  appliesTo   PlatformCouponAppliesTo @default(ANY)
+
+  discountType  DiscountType
+  // Percent (1–100) when PERCENT, else a flat amount in minor units (paise).
+  discountValue Int
+  // Minimum booking/order subtotal (minor units) required to use the code.
+  minOrderMinor Int  @default(0)
+  // Optional cap on a percentage discount (minor units).
+  maxDiscountMinor Int?
+
+  // Restricts the code to businesses in one category (e.g. only "Beauty &
+  // Wellness"). Null means any category.
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  expiresAt  DateTime?
+  // Optional total-redemption cap across all customers.
+  usageLimit Int?
+  usedCount  Int      @default(0)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
 }
 
 // A customer's review of one product they bought (one per product per order).

@@ -4,7 +4,7 @@ import { ApiError } from '@/utils/ApiError';
 import { refundPayment } from '@/lib/razorpay';
 import { haversineKm } from '@/utils/geo';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
-import { couponService } from '@/modules/coupon/coupon.service';
+import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import { CreateBookingInput } from './booking.types';
 
 // Customer-facing copy for the statuses a provider can move a booking to.
@@ -125,26 +125,18 @@ async function create(userId: string, input: CreateBookingInput) {
   const end = new Date(start.getTime() + service.durationMin * 60_000);
 
   // Apply a coupon (if any) to the service price; the discount comes off the total.
+  // Checked against this business's own coupons first, then platform-wide ones.
   const subtotal = service.priceMinor;
   let discountMinor = 0;
-  let appliedCoupon: { id: string; code: string } | null = null;
+  let appliedCoupon: ResolvedCheckoutCoupon | null = null;
   if (input.couponCode) {
-    const coupon = await prisma.coupon.findUnique({
-      where: {
-        providerId_code: {
-          providerId: input.providerId,
-          code: couponService.normalizeCode(input.couponCode),
-        },
-      },
-    });
-    if (!coupon) throw ApiError.badRequest('That code isn’t valid for this business.');
-    const evaluated = couponService.evaluateCoupon(coupon, {
-      subtotalMinor: subtotal,
-      serviceId: service.id,
-    });
-    if (evaluated.error) throw ApiError.badRequest(evaluated.error);
-    discountMinor = evaluated.discountMinor;
-    appliedCoupon = { id: coupon.id, code: coupon.code };
+    appliedCoupon = await platformCouponService.resolveCheckoutCoupon(
+      input.providerId,
+      input.couponCode,
+      { subtotalMinor: subtotal, serviceId: service.id, categoryId: service.categoryId },
+      'BOOKING',
+    );
+    discountMinor = appliedCoupon.discountMinor;
   }
   // Travel fee is a separate surcharge, added after the (service-only) discount.
   const total = subtotal - discountMinor + travelFeeMinor;
@@ -174,10 +166,7 @@ async function create(userId: string, input: CreateBookingInput) {
         select: bookingSelect,
       });
       if (appliedCoupon) {
-        await tx.coupon.update({
-          where: { id: appliedCoupon.id },
-          data: { usedCount: { increment: 1 } },
-        });
+        await platformCouponService.redeem(tx, appliedCoupon);
       }
       return created;
     });

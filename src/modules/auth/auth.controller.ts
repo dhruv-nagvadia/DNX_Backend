@@ -30,6 +30,14 @@ const loginProvider = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, result, 'Logged in successfully');
 });
 
+// No registerAdmin — admin accounts are never self-registered. The first one
+// is created via `npm run create-admin` (backend/scripts/createAdmin.ts);
+// further admins would be created by an existing admin, once that exists.
+const loginAdmin = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.login(req.body, Role.ADMIN);
+  sendSuccess(res, result, 'Logged in successfully');
+});
+
 const refresh = asyncHandler(async (req: Request, res: Response) => {
   const tokens = await authService.refresh(req.body.refreshToken);
   sendSuccess(res, tokens, 'Token refreshed');
@@ -87,6 +95,7 @@ export const authController = {
   loginCustomer,
   registerProvider,
   loginProvider,
+  loginAdmin,
   refresh,
   me,
   updateMe,

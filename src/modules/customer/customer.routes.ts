@@ -6,6 +6,7 @@ import { authLimiter } from '@/middlewares/rateLimit';
 import { customerController } from './customer.controller';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { validateCouponSchema } from '@/modules/coupon/coupon.validation';
+import { platformCouponController } from '@/modules/platformCoupon/platformCoupon.controller';
 import { listProviderSchema } from '@/modules/provider/provider.validation';
 import { productController } from '@/modules/product/product.controller';
 import { searchProductSchema } from '@/modules/product/product.validation';
@@ -64,6 +65,8 @@ customerRoutes.get('/providers', validate(listProviderSchema), customerControlle
 customerRoutes.get('/providers/:id/booked-slots', customerController.bookedSlots);
 customerRoutes.get('/providers/:id/reviews', reviewController.listPublic);
 customerRoutes.get('/providers/:id/coupons', couponController.listPublic);
+customerRoutes.get('/providers/:id/platform-coupons', platformCouponController.listApplicableForProvider);
+customerRoutes.get('/platform-coupons', platformCouponController.listPublic);
 customerRoutes.get('/products', validate(searchProductSchema), productController.searchPublic);
 customerRoutes.get('/services', validate(searchServiceSchema), serviceController.searchPublic);
 customerRoutes.get('/products/:id/reviews', reviewController.listProductReviews);
