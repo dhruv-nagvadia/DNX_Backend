@@ -34,6 +34,7 @@ async function listForOwner(userId: string, providerId: string) {
   await assertOwnedProvider(userId, providerId);
   return prisma.product.findMany({
     where: { providerId },
+    include: { productType: { select: { name: true } } },
     orderBy: { createdAt: 'asc' },
   });
 }
@@ -54,6 +55,7 @@ async function create(userId: string, providerId: string, input: CreateProductIn
       stockQty: input.stockQty ?? 0,
       stepQty: input.stepQty ?? 1,
       imageUrl: input.imageUrl,
+      productTypeId: input.productTypeId || null,
     },
   });
 }
@@ -80,6 +82,7 @@ async function update(
       stepQty: input.stepQty,
       imageUrl: input.imageUrl,
       isActive: input.isActive,
+      productTypeId: input.productTypeId !== undefined ? input.productTypeId || null : undefined,
     },
   });
 }
@@ -125,6 +128,7 @@ const publicInclude = {
   provider: {
     select: { id: true, businessName: true, city: true, isVerified: true, latitude: true, longitude: true },
   },
+  productType: { select: { slug: true, name: true } },
 } satisfies Prisma.ProductInclude;
 
 const KM_PER_DEGREE_LAT = 111;
@@ -160,7 +164,18 @@ function buildBaseWhere(query: SearchProductQuery): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = { isActive: true, provider: buildProviderWhere(query) };
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+  // Browsing by product type (e.g. "Bath & Body") pools matching products
+  // across every store that sells them, regardless of the store's own category.
+  if (query.productTypeSlug) where.productType = { slug: query.productTypeSlug };
   return where;
+}
+
+/** Active product types, for the "shop by product" browse grid. */
+function listProductTypes() {
+  return prisma.productType.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' },
+  });
 }
 
 /** Public product search — matches by name; category/open-now/location filter on the selling store. */
@@ -267,4 +282,5 @@ export const productService = {
   remove,
   adjustStock,
   searchPublic,
+  listProductTypes,
 };

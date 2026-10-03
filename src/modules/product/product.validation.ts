@@ -14,6 +14,7 @@ export const createProductSchema = z.object({
     section: z.string().max(60).optional(),
     imageUrl: z.string().url().optional(),
     currency: z.string().optional(),
+    productTypeId: z.string().min(1).nullable().optional(),
   }),
 });
 
@@ -21,6 +22,7 @@ export const searchProductSchema = z.object({
   query: z.object({
     search: z.string().optional(),
     categorySlug: z.string().optional(),
+    productTypeSlug: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
     postalCode: z.string().optional(),
@@ -46,6 +48,7 @@ export const updateProductSchema = z.object({
     section: z.string().max(60).optional(),
     imageUrl: z.string().url().optional(),
     isActive: z.boolean().optional(),
+    productTypeId: z.string().min(1).nullable().optional(),
   }),
 });
 

@@ -68,6 +68,7 @@ customerRoutes.get('/providers/:id/coupons', couponController.listPublic);
 customerRoutes.get('/providers/:id/platform-coupons', platformCouponController.listApplicableForProvider);
 customerRoutes.get('/platform-coupons', platformCouponController.listPublic);
 customerRoutes.get('/products', validate(searchProductSchema), productController.searchPublic);
+customerRoutes.get('/product-types', productController.listProductTypes);
 customerRoutes.get('/services', validate(searchServiceSchema), serviceController.searchPublic);
 customerRoutes.get('/products/:id/reviews', reviewController.listProductReviews);
 customerRoutes.get('/providers/:id', customerController.getProvider);

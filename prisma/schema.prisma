@@ -463,6 +463,13 @@ model Product {
   providerId  String
   provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
+  // What KIND of product this is (e.g. "Bath & Body"), independent of the
+  // selling store's own business category — lets a customer browse "all
+  // shampoo" pooled across every store that sells it, not just one store's
+  // catalog. Nullable: an untagged product still works everywhere else.
+  productTypeId String?
+  productType   ProductType? @relation(fields: [productTypeId], references: [id], onDelete: SetNull)
+
   name        String
   description String?
   // What the product is measured in: "weight" (base gram), "volume" (base ml)
@@ -499,6 +506,30 @@ model Product {
   stockAdjustments StockAdjustment[]
 
   @@index([providerId])
+  @@index([productTypeId])
+}
+
+// A product-level taxonomy (e.g. "Bath & Body", "Snacks & Branded Foods") —
+// deliberately separate from the business-level Category/Subcategory, since
+// one STORE category (e.g. Grocery) sells many different product types, and
+// the same product type (e.g. Bath & Body) is sold by many different store
+// categories (Grocery, Cosmetics Store, Pharmacy…). Lets a customer browse
+// "all shampoo" pooled across every store that sells it.
+model ProductType {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  // Relative path under /assets (e.g. "/assets/product-types/bath-body.png"),
+  // made absolute at response time — same pattern as Category.iconUrl.
+  iconUrl   String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([isActive])
 }
 
 // A manual stock change made by the provider (not from an in-app order) —

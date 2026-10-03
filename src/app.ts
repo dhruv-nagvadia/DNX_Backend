@@ -1,3 +1,4 @@
+import path from 'path';
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -41,6 +42,9 @@ export function createApp(): Application {
 
   // Serve uploaded business images.
   app.use('/uploads', express.static(UPLOAD_DIR));
+  // Serve curated static assets (e.g. category/product-type browse images) —
+  // distinct from /uploads, which is for user-submitted provider/product photos.
+  app.use('/assets', express.static(path.resolve(process.cwd(), 'public')));
 
   // Health check (used by load balancers / uptime monitors)
   app.get('/health', (_req, res) => res.json({ success: true, message: 'ok' }));

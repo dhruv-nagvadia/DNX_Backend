@@ -18,7 +18,11 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node-dev --transpile-only prisma/seed.ts",
-    "create-admin": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/createAdmin.ts"
+    "create-admin": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/createAdmin.ts",
+    "set-category-icons": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/setCategoryIcons.ts",
+    "set-product-type-icons": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/setProductTypeIcons.ts",
+    "set-category-popularity": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/setCategoryPopularity.ts",
+    "set-product-type-popularity": "ts-node-dev --transpile-only -r tsconfig-paths/register scripts/setProductTypePopularity.ts"
   },
   "prisma": {
     "seed": "ts-node-dev --transpile-only prisma/seed.ts"
