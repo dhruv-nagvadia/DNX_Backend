@@ -240,7 +240,11 @@ async function getById(id: string, viewerPostalCode?: string) {
       // Future date-specific overrides, so the app can adjust availability.
       dateHours: { where: { date: { gte: today } }, orderBy: { date: 'asc' } },
       // Catalog for STORE businesses (active items only), grouped by section.
-      products: { where: { isActive: true }, orderBy: [{ section: 'asc' }, { createdAt: 'asc' }] },
+      products: {
+        where: { isActive: true },
+        orderBy: [{ section: 'asc' }, { createdAt: 'asc' }],
+        include: { productType: { select: { slug: true, name: true, iconUrl: true } } },
+      },
     },
   });
   if (!provider || !provider.isActive) throw ApiError.notFound('Provider not found');
