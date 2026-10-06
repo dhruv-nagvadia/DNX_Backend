@@ -1,8 +1,12 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { z } from 'zod';
 
-// Load .env before anything reads process.env.
-dotenv.config();
+// Which of .env.development / .env.staging / .env.production to load — set by
+// whichever npm script starts the process (see package.json). Defaults to
+// development so plain `ts-node-dev` / one-off scripts still work untouched.
+const APP_ENV = process.env.NODE_ENV || 'development';
+dotenv.config({ path: path.resolve(process.cwd(), `.env.${APP_ENV}`) });
 
 /**
  * Single source of truth for environment variables.
@@ -10,7 +14,7 @@ dotenv.config();
  * so we never ship a half-configured server.
  */
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
   CORS_ORIGINS: z
     .string()

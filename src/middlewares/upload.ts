@@ -1,10 +1,12 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import multer from 'multer';
+import { env } from '@/config';
 import { ApiError } from '@/utils/ApiError';
 
-// Ensure the uploads directory exists at boot.
-export const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
+// One subfolder per environment — a file a staging tester uploads must never
+// show up (or get served) on dev/production, same as the separate databases.
+export const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', env.NODE_ENV);
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
