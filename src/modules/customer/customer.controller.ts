@@ -4,6 +4,7 @@ import { sendSuccess } from '@/utils/ApiResponse';
 import { providerService } from '@/modules/provider/provider.service';
 import { ListProviderQuery } from '@/modules/provider/provider.types';
 import { bookingService } from '@/modules/booking/booking.service';
+import { platformCouponService } from '@/modules/platformCoupon/platformCoupon.service';
 
 /** DB stores iconUrl as a relative path (e.g. "/assets/product-types/bath-body.png")
  * so it stays portable across environments — made absolute here, the same way
@@ -25,11 +26,18 @@ const listProviders = asyncHandler(async (req: Request, res: Response) => {
 const getProvider = asyncHandler(async (req: Request, res: Response) => {
   const postalCode = typeof req.query.postalCode === 'string' ? req.query.postalCode : undefined;
   const provider = await providerService.getById(req.params.id, postalCode);
-  const products = provider.products.map((p) =>
-    p.productType
-      ? { ...p, productType: { ...p.productType, iconUrl: withAbsoluteIcon(req, p.productType.iconUrl) } }
-      : p,
+  const couponByProductId = await platformCouponService.bestCouponForProducts(
+    provider.id,
+    provider.categoryId,
+    provider.products.map((p) => ({ id: p.id, priceMinor: p.priceMinor })),
   );
+  const products = provider.products.map((p) => ({
+    ...p,
+    productType: p.productType
+      ? { ...p.productType, iconUrl: withAbsoluteIcon(req, p.productType.iconUrl) }
+      : p.productType,
+    coupon: couponByProductId.get(p.id) ?? null,
+  }));
   sendSuccess(res, { ...provider, products });
 });
 

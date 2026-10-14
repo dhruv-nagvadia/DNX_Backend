@@ -33,8 +33,16 @@ export interface CouponContext {
 /** Normalize a code for storage/lookup (case-insensitive, trimmed). */
 export const normalizeCode = (code: string) => code.trim().toUpperCase();
 
+/** The handful of fields the discount math actually needs — satisfied by both
+ * a provider Coupon and a PlatformCoupon, so this one function serves both. */
+export interface DiscountRule {
+  discountType: 'PERCENT' | 'FLAT';
+  discountValue: number;
+  maxDiscountMinor: number | null;
+}
+
 /** Percent/flat discount off one amount, capped by maxDiscountMinor and the amount itself. */
-function computeDiscount(coupon: Coupon, amountMinor: number): number {
+export function computeDiscount(coupon: DiscountRule, amountMinor: number): number {
   let discount =
     coupon.discountType === 'PERCENT'
       ? Math.round((amountMinor * coupon.discountValue) / 100)

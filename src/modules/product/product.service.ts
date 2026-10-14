@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { haversineKm } from '@/utils/geo';
+import { platformCouponService, BestProductCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import {
   AdjustStockInput,
   CreateProductInput,
@@ -126,10 +127,45 @@ async function adjustStock(
 // which business the product is from.
 const publicInclude = {
   provider: {
-    select: { id: true, businessName: true, city: true, isVerified: true, latitude: true, longitude: true },
+    select: {
+      id: true,
+      businessName: true,
+      city: true,
+      isVerified: true,
+      latitude: true,
+      longitude: true,
+      categoryId: true,
+    },
   },
   productType: { select: { slug: true, name: true } },
 } satisfies Prisma.ProductInclude;
+
+/** Attaches each product's best applicable coupon (see `bestCouponForProducts`
+ * for what that means) — pooled search results can span many stores, so this
+ * groups by provider first and fetches each store's coupon lists only once. */
+async function attachCoupons<
+  T extends { id: string; priceMinor: number; provider: { id: string; categoryId: string } },
+>(items: T[]): Promise<(T & { coupon: BestProductCoupon | null })[]> {
+  const byProvider = new Map<string, { categoryId: string; products: { id: string; priceMinor: number }[] }>();
+  for (const item of items) {
+    const key = item.provider.id;
+    if (!byProvider.has(key)) {
+      byProvider.set(key, { categoryId: item.provider.categoryId, products: [] });
+    }
+    byProvider.get(key)!.products.push({ id: item.id, priceMinor: item.priceMinor });
+  }
+  const entries = await Promise.all(
+    [...byProvider.entries()].map(
+      async ([providerId, { categoryId, products }]) =>
+        [providerId, await platformCouponService.bestCouponForProducts(providerId, categoryId, products)] as const,
+    ),
+  );
+  const mapByProvider = new Map(entries);
+  return items.map((item) => ({
+    ...item,
+    coupon: mapByProvider.get(item.provider.id)?.get(item.id) ?? null,
+  }));
+}
 
 const KM_PER_DEGREE_LAT = 111;
 const NEARBY_RADIUS_KM = 50;
@@ -222,8 +258,9 @@ async function searchPublic(query: SearchProductQuery) {
     });
     const total = withDistance.length;
     const skip = (query.page - 1) * query.limit;
+    const page = withDistance.slice(skip, skip + query.limit);
     return {
-      items: withDistance.slice(skip, skip + query.limit),
+      items: await attachCoupons(page),
       pagination: {
         page: query.page,
         limit: query.limit,
@@ -265,7 +302,7 @@ async function searchPublic(query: SearchProductQuery) {
   ]);
 
   return {
-    items,
+    items: await attachCoupons(items),
     pagination: {
       page: query.page,
       limit: query.limit,

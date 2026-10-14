@@ -2,7 +2,7 @@ import { PlatformCoupon, PlatformCouponAppliesTo, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { formatINR } from '@/modules/notification/notification.service';
-import { couponService, CouponContext } from '@/modules/coupon/coupon.service';
+import { couponService, computeDiscount, evaluateCoupon, CouponContext } from '@/modules/coupon/coupon.service';
 
 export interface PlatformCouponInput {
   code: string;
@@ -70,15 +70,7 @@ function evaluatePlatformCoupon(
       error: `Add ${formatINR(coupon.minOrderMinor)} of items to use this code.`,
     };
   }
-  let discount =
-    coupon.discountType === 'PERCENT'
-      ? Math.round((ctx.subtotalMinor * coupon.discountValue) / 100)
-      : coupon.discountValue;
-  if (coupon.discountType === 'PERCENT' && coupon.maxDiscountMinor != null) {
-    discount = Math.min(discount, coupon.maxDiscountMinor);
-  }
-  discount = Math.max(0, Math.min(discount, ctx.subtotalMinor));
-  return { discountMinor: discount };
+  return { discountMinor: computeDiscount(coupon, ctx.subtotalMinor) };
 }
 
 /**
@@ -208,6 +200,87 @@ async function listApplicableForProvider(providerId: string, usage: 'BOOKING' | 
     }));
 }
 
+/** The best coupon that already applies to a product bought on its own — see
+ * module doc on `bestCouponForProducts` for what "bought on its own" means. */
+export interface BestProductCoupon {
+  source: 'PROVIDER' | 'PLATFORM';
+  code: string;
+  discountMinor: number;
+  finalPriceMinor: number;
+}
+
+/**
+ * For a store's product list, finds the single best coupon that ALREADY
+ * applies to each product if it were the only thing in the cart — i.e. a
+ * provider PRODUCT-scope coupon targeting it, or a provider ORDER-scope /
+ * platform coupon whose minimum order amount this one item's own price
+ * already clears. This is deliberately conservative: it never shows a
+ * discount/final price that wouldn't actually hold if the customer bought
+ * only this item, even though the coupon could still apply at checkout once
+ * the rest of the cart pushes the subtotal over the line.
+ *
+ * Fetches this provider's coupons + matching platform coupons ONCE (not
+ * per product), then evaluates every product in memory against both lists,
+ * reusing the exact same `evaluateCoupon`/`evaluatePlatformCoupon` used at
+ * checkout — just with a single-item `ctx` standing in for the whole cart.
+ */
+async function bestCouponForProducts(
+  providerId: string,
+  categoryId: string | null | undefined,
+  products: { id: string; priceMinor: number }[],
+): Promise<Map<string, BestProductCoupon | null>> {
+  const now = new Date();
+  const [providerCoupons, platformCoupons] = await Promise.all([
+    prisma.coupon.findMany({
+      where: {
+        providerId,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+      },
+    }),
+    prisma.platformCoupon.findMany({
+      where: {
+        isActive: true,
+        AND: [
+          { OR: [{ appliesTo: 'ANY' }, { appliesTo: 'ORDER' }] },
+          { OR: [{ categoryId: null }, { categoryId }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+        ],
+      },
+    }),
+  ]);
+  const usableProviderCoupons = providerCoupons.filter(
+    (c) => c.usageLimit == null || c.usedCount < c.usageLimit,
+  );
+  const usablePlatformCoupons = platformCoupons.filter(
+    (c) => c.usageLimit == null || c.usedCount < c.usageLimit,
+  );
+
+  const map = new Map<string, BestProductCoupon | null>();
+  for (const p of products) {
+    const ctx: CouponContext = {
+      subtotalMinor: p.priceMinor,
+      items: [{ productId: p.id, lineTotalMinor: p.priceMinor }],
+    };
+    let best: BestProductCoupon | null = null;
+    const consider = (source: 'PROVIDER' | 'PLATFORM', code: string, discountMinor: number) => {
+      if (discountMinor > 0 && (!best || discountMinor > best.discountMinor)) {
+        best = { source, code, discountMinor, finalPriceMinor: p.priceMinor - discountMinor };
+      }
+    };
+    for (const c of usableProviderCoupons) {
+      const { discountMinor, error } = evaluateCoupon(c, ctx);
+      if (!error) consider('PROVIDER', c.code, discountMinor);
+    }
+    for (const c of usablePlatformCoupons) {
+      const { discountMinor, error } = evaluatePlatformCoupon(c, { ...ctx, categoryId: categoryId ?? undefined }, 'ORDER');
+      if (!error) consider('PLATFORM', c.code, discountMinor);
+    }
+    map.set(p.id, best);
+  }
+  return map;
+}
+
 // ── Admin management ──────────────────────────────────────────────────────────
 
 function list() {
@@ -285,6 +358,7 @@ export const platformCouponService = {
   redeem,
   listPublic,
   listApplicableForProvider,
+  bestCouponForProducts,
   list,
   create,
   update,
