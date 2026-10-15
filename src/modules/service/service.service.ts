@@ -34,6 +34,7 @@ async function create(userId: string, providerId: string, input: CreateServiceIn
       travelRequired: input.travelRequired ?? false,
       travelBaseFeeMinor: toMinor(input.travelBaseFee ?? 0),
       travelPerKmMinor: toMinor(input.travelPerKm ?? 0),
+      partialPayEnabled: input.partialPayEnabled ?? true,
     },
   });
 }
@@ -57,6 +58,7 @@ async function update(
       travelRequired: input.travelRequired,
       travelBaseFeeMinor: input.travelBaseFee !== undefined ? toMinor(input.travelBaseFee) : undefined,
       travelPerKmMinor: input.travelPerKm !== undefined ? toMinor(input.travelPerKm) : undefined,
+      partialPayEnabled: input.partialPayEnabled,
     },
   });
 }

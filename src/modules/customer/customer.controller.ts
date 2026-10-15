@@ -37,6 +37,10 @@ const getProvider = asyncHandler(async (req: Request, res: Response) => {
       ? { ...p.productType, iconUrl: withAbsoluteIcon(req, p.productType.iconUrl) }
       : p.productType,
     coupon: couponByProductId.get(p.id) ?? null,
+    // The store's own flag AND this product's — a product can only narrow
+    // either further, never re-enable it for a store that's opted out.
+    codEnabled: p.codEnabled && provider.codEnabled,
+    partialPayEnabled: p.partialPayEnabled && provider.partialPayEnabled,
   }));
   sendSuccess(res, { ...provider, products });
 });

@@ -53,10 +53,15 @@ async function create(userId: string, providerId: string, input: CreateProductIn
       currency: input.currency ?? 'INR',
       unit: baseUnit(input.measure),
       section: input.section,
-      stockQty: input.stockQty ?? 0,
+      // unlimitedStock products reuse stockQty as a plain 0/1 availability
+      // flag (see setStockStatus) — default a new one to "in stock".
+      stockQty: input.stockQty ?? (input.unlimitedStock ? 1 : 0),
+      unlimitedStock: input.unlimitedStock ?? false,
       stepQty: input.stepQty ?? 1,
       imageUrl: input.imageUrl,
       productTypeId: input.productTypeId || null,
+      codEnabled: input.codEnabled ?? true,
+      partialPayEnabled: input.partialPayEnabled ?? true,
     },
   });
 }
@@ -80,10 +85,13 @@ async function update(
       unit: input.measure ? baseUnit(input.measure) : undefined,
       section: input.section,
       stockQty: input.stockQty,
+      unlimitedStock: input.unlimitedStock,
       stepQty: input.stepQty,
       imageUrl: input.imageUrl,
       isActive: input.isActive,
       productTypeId: input.productTypeId !== undefined ? input.productTypeId || null : undefined,
+      codEnabled: input.codEnabled,
+      partialPayEnabled: input.partialPayEnabled,
     },
   });
 }
@@ -108,6 +116,9 @@ async function adjustStock(
 ) {
   await assertOwnedProvider(userId, providerId);
   const product = await assertProductInProvider(providerId, productId);
+  if (product.unlimitedStock) {
+    throw ApiError.badRequest('This product has unlimited stock — there is nothing to adjust.');
+  }
 
   const nextStock = product.stockQty + input.delta;
   if (nextStock < 0) {
@@ -123,6 +134,30 @@ async function adjustStock(
   return updated;
 }
 
+/**
+ * A quick in/out-of-stock flip, available for any product. Marking OUT of
+ * stock works the same way for both kinds — zeroes stockQty — which for a
+ * tracked-inventory product really does discard its real count (the caller
+ * confirms with the provider first), and for an unlimitedStock (made-to-order)
+ * product just flips its plain 0/1 availability flag. Marking IN stock only
+ * applies to unlimitedStock products — a tracked product has no implied
+ * quantity to restock to, so that case goes through adjustStock ("Add stock")
+ * instead, which asks for a real amount.
+ */
+async function setStockStatus(
+  userId: string,
+  providerId: string,
+  productId: string,
+  inStock: boolean,
+) {
+  await assertOwnedProvider(userId, providerId);
+  const product = await assertProductInProvider(providerId, productId);
+  if (inStock && !product.unlimitedStock) {
+    throw ApiError.badRequest('Use "Add stock" to restock a tracked-inventory product.');
+  }
+  return prisma.product.update({ where: { id: productId }, data: { stockQty: inStock ? 1 : 0 } });
+}
+
 // Public search views join through the selling store, so the customer sees
 // which business the product is from.
 const publicInclude = {
@@ -135,17 +170,30 @@ const publicInclude = {
       latitude: true,
       longitude: true,
       categoryId: true,
+      codEnabled: true,
+      partialPayEnabled: true,
     },
   },
   productType: { select: { slug: true, name: true } },
 } satisfies Prisma.ProductInclude;
 
 /** Attaches each product's best applicable coupon (see `bestCouponForProducts`
- * for what that means) — pooled search results can span many stores, so this
- * groups by provider first and fetches each store's coupon lists only once. */
-async function attachCoupons<
-  T extends { id: string; priceMinor: number; provider: { id: string; categoryId: string } },
->(items: T[]): Promise<(T & { coupon: BestProductCoupon | null })[]> {
+ * for what that means) and its effective Cash-on-Delivery / Partial-Pay
+ * eligibility (the store's own flag AND the product's — a product can only
+ * narrow either further, never turn one back on for a store that's opted
+ * out). Pooled search results can span many stores, so this groups by
+ * provider first and fetches each store's coupon lists only once. */
+async function decorateProducts<
+  T extends {
+    id: string;
+    priceMinor: number;
+    codEnabled: boolean;
+    partialPayEnabled: boolean;
+    provider: { id: string; categoryId: string; codEnabled: boolean; partialPayEnabled: boolean };
+  },
+>(
+  items: T[],
+): Promise<(T & { coupon: BestProductCoupon | null; codEnabled: boolean; partialPayEnabled: boolean })[]> {
   const byProvider = new Map<string, { categoryId: string; products: { id: string; priceMinor: number }[] }>();
   for (const item of items) {
     const key = item.provider.id;
@@ -164,6 +212,8 @@ async function attachCoupons<
   return items.map((item) => ({
     ...item,
     coupon: mapByProvider.get(item.provider.id)?.get(item.id) ?? null,
+    codEnabled: item.codEnabled && item.provider.codEnabled,
+    partialPayEnabled: item.partialPayEnabled && item.provider.partialPayEnabled,
   }));
 }
 
@@ -260,7 +310,7 @@ async function searchPublic(query: SearchProductQuery) {
     const skip = (query.page - 1) * query.limit;
     const page = withDistance.slice(skip, skip + query.limit);
     return {
-      items: await attachCoupons(page),
+      items: await decorateProducts(page),
       pagination: {
         page: query.page,
         limit: query.limit,
@@ -302,7 +352,7 @@ async function searchPublic(query: SearchProductQuery) {
   ]);
 
   return {
-    items: await attachCoupons(items),
+    items: await decorateProducts(items),
     pagination: {
       page: query.page,
       limit: query.limit,
@@ -318,6 +368,7 @@ export const productService = {
   update,
   remove,
   adjustStock,
+  setStockStatus,
   searchPublic,
   listProductTypes,
 };

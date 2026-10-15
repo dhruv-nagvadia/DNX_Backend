@@ -283,14 +283,44 @@ async function getMineById(userId: string, id: string) {
 
 /** Updates an owned business. */
 async function update(userId: string, id: string, input: UpdateProviderInput) {
-  await getMineById(userId, id); // ownership check
+  const existing = await getMineById(userId, id); // ownership check
 
   if (input.categoryId) {
     const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
     if (!category) throw ApiError.badRequest('Invalid categoryId');
   }
 
-  return prisma.provider.update({ where: { id }, data: input, include: ownerInclude });
+  const codChanged = input.codEnabled !== undefined && input.codEnabled !== existing.codEnabled;
+  const partialPayChanged =
+    input.partialPayEnabled !== undefined && input.partialPayEnabled !== existing.partialPayEnabled;
+
+  const provider = await prisma.provider.update({ where: { id }, data: input, include: ownerInclude });
+
+  // Flipping a business-wide switch resets every product/service under it to
+  // match, so that's the "last state" a provider then individually overrides
+  // per item — without this, toggling the business off would be silently
+  // ignored by every item still carrying an older true/false of its own.
+  if (codChanged || partialPayChanged) {
+    await prisma.$transaction([
+      ...(codChanged
+        ? [prisma.product.updateMany({ where: { providerId: id }, data: { codEnabled: input.codEnabled } })]
+        : []),
+      ...(partialPayChanged
+        ? [
+            prisma.product.updateMany({
+              where: { providerId: id },
+              data: { partialPayEnabled: input.partialPayEnabled },
+            }),
+            prisma.service.updateMany({
+              where: { providerId: id },
+              data: { partialPayEnabled: input.partialPayEnabled },
+            }),
+          ]
+        : []),
+    ]);
+  }
+
+  return provider;
 }
 
 /** Append newly uploaded image URLs to an owned business's gallery. */

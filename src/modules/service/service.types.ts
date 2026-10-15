@@ -10,6 +10,9 @@ export interface CreateServiceInput {
   // Travel fees in major units (rupees); stored as minor units (paise).
   travelBaseFee?: number;
   travelPerKm?: number;
+  // Off = this service can't be booked with Partial Pay, even if the
+  // business otherwise offers it. Defaults to true.
+  partialPayEnabled?: boolean;
 }
 
 export interface UpdateServiceInput {
@@ -21,6 +24,7 @@ export interface UpdateServiceInput {
   travelRequired?: boolean;
   travelBaseFee?: number;
   travelPerKm?: number;
+  partialPayEnabled?: boolean;
 }
 
 export type ServiceSort = 'rating' | 'reviews' | 'newest' | 'nearest';

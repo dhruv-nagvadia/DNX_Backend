@@ -16,6 +16,8 @@ export const createProviderSchema = z.object({
     latitude: z.coerce.number().optional(),
     longitude: z.coerce.number().optional(),
     depositPercent: z.coerce.number().int().min(0).max(100).optional(),
+    codEnabled: z.boolean().optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });
 
@@ -96,5 +98,7 @@ export const updateProviderSchema = z.object({
     latitude: z.coerce.number().optional(),
     longitude: z.coerce.number().optional(),
     depositPercent: z.coerce.number().int().min(0).max(100).optional(),
+    codEnabled: z.boolean().optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });

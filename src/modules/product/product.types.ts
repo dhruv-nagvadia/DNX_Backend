@@ -9,6 +9,9 @@ export interface CreateProductInput {
   priceQty?: number;
   // All quantities are in base units (g / ml / piece).
   stockQty?: number;
+  // Made-to-order / no fixed quantity (e.g. a restaurant dish) — stockQty is
+  // ignored everywhere when this is on. Defaults to false.
+  unlimitedStock?: boolean;
   stepQty?: number;
   section?: string;
   imageUrl?: string;
@@ -16,6 +19,10 @@ export interface CreateProductInput {
   // What kind of product this is (e.g. "Bath & Body") — lets customers
   // browse it pooled with the same kind of product from other stores.
   productTypeId?: string | null;
+  // Off = this product can't be paid for with Cash on Delivery, even if the
+  // store otherwise accepts it. Defaults to true (COD allowed).
+  codEnabled?: boolean;
+  partialPayEnabled?: boolean;
 }
 
 export interface UpdateProductInput {
@@ -25,11 +32,14 @@ export interface UpdateProductInput {
   price?: number;
   priceQty?: number;
   stockQty?: number;
+  unlimitedStock?: boolean;
   stepQty?: number;
   section?: string;
   imageUrl?: string;
   isActive?: boolean;
   productTypeId?: string | null;
+  codEnabled?: boolean;
+  partialPayEnabled?: boolean;
 }
 
 export type StockAdjustmentReason = 'SALE' | 'RESTOCK' | 'DAMAGED' | 'OTHER';

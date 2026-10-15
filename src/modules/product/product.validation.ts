@@ -10,11 +10,14 @@ export const createProductSchema = z.object({
     price: z.coerce.number().min(0),
     priceQty: z.coerce.number().positive().optional(),
     stockQty: z.coerce.number().min(0).optional(),
+    unlimitedStock: z.boolean().optional(),
     stepQty: z.coerce.number().positive().optional(),
     section: z.string().max(60).optional(),
     imageUrl: z.string().url().optional(),
     currency: z.string().optional(),
     productTypeId: z.string().min(1).nullable().optional(),
+    codEnabled: z.boolean().optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });
 
@@ -44,11 +47,14 @@ export const updateProductSchema = z.object({
     price: z.coerce.number().min(0).optional(),
     priceQty: z.coerce.number().positive().optional(),
     stockQty: z.coerce.number().min(0).optional(),
+    unlimitedStock: z.boolean().optional(),
     stepQty: z.coerce.number().positive().optional(),
     section: z.string().max(60).optional(),
     imageUrl: z.string().url().optional(),
     isActive: z.boolean().optional(),
     productTypeId: z.string().min(1).nullable().optional(),
+    codEnabled: z.boolean().optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });
 
@@ -57,5 +63,13 @@ export const adjustStockSchema = z.object({
     delta: z.coerce.number().refine((n) => n !== 0, 'Enter a non-zero amount'),
     reason: z.enum(['SALE', 'RESTOCK', 'DAMAGED', 'OTHER']).optional(),
     note: z.string().max(200).optional(),
+  }),
+});
+
+// For unlimitedStock (made-to-order) products — a simple in/out of stock
+// flip, in place of the quantity-based adjustStock above.
+export const setStockStatusSchema = z.object({
+  body: z.object({
+    inStock: z.boolean(),
   }),
 });

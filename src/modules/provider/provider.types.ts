@@ -13,6 +13,8 @@ export interface CreateProviderInput {
   latitude?: number;
   longitude?: number;
   depositPercent?: number;
+  codEnabled?: boolean;
+  partialPayEnabled?: boolean;
 }
 
 export type ProviderSort = 'rating' | 'reviews' | 'newest' | 'nearest';

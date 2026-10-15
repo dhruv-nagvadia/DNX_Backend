@@ -47,10 +47,18 @@ const PROVIDER_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   CANCELLED: [],
 };
 
-/** Ops that put an order's items back into stock (used when cancelling). */
-function restoreStockOps(items: { productId: string | null; quantity: number }[]) {
-  return items
-    .filter((i): i is { productId: string; quantity: number } => !!i.productId)
+/** Ops that put an order's items back into stock (used when cancelling).
+ * Skips products that are currently on unlimitedStock (nothing was ever
+ * decremented for them) or no longer exist. */
+async function restoreStockOps(items: { productId: string | null; quantity: number }[]) {
+  const withIds = items.filter((i): i is { productId: string; quantity: number } => !!i.productId);
+  const products = await prisma.product.findMany({
+    where: { id: { in: withIds.map((i) => i.productId) } },
+    select: { id: true, unlimitedStock: true },
+  });
+  const trackedIds = new Set(products.filter((p) => !p.unlimitedStock).map((p) => p.id));
+  return withIds
+    .filter((i) => trackedIds.has(i.productId))
     .map((i) =>
       prisma.product.update({
         where: { id: i.productId },
@@ -68,6 +76,7 @@ export interface OrderLine {
   unit: string;
   quantity: number;
   lineTotal: number;
+  unlimitedStock: boolean;
 }
 
 /** A validated, price-locked cart — everything needed to actually place the
@@ -117,7 +126,10 @@ async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
     if (amount < p.stepQty) {
       throw ApiError.badRequest(`Minimum for ${p.name} is ${p.stepQty} ${p.unit}`);
     }
-    if (p.stockQty < amount) {
+    if (p.unlimitedStock) {
+      // No real count to compare against — just a plain in/out-of-stock flag.
+      if (p.stockQty <= 0) throw ApiError.badRequest(`${p.name} is currently out of stock`);
+    } else if (p.stockQty < amount) {
       throw ApiError.badRequest(`Only ${p.stockQty} ${p.unit} of ${p.name} left in stock`);
     }
     // Price scales with the amount: (amount / priceQty) × priceMinor.
@@ -132,6 +144,7 @@ async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
       unit: p.unit,
       quantity: amount,
       lineTotal,
+      unlimitedStock: p.unlimitedStock,
     };
   });
 
@@ -157,6 +170,33 @@ async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
 
   const total = subtotal - discountMinor;
   const method = input.paymentMethod ?? 'ONLINE';
+
+  if (method === 'CASH') {
+    if (!provider.codEnabled) {
+      throw ApiError.badRequest('This store doesn’t accept Cash on Delivery.');
+    }
+    const blocked = lines.filter((l) => !byId.get(l.productId)?.codEnabled);
+    if (blocked.length > 0) {
+      throw ApiError.badRequest(
+        `Cash on Delivery isn't available for ${blocked.map((l) => l.name).join(', ')}. ` +
+          `Choose online payment or remove ${blocked.length > 1 ? 'these items' : 'this item'} from your order.`,
+      );
+    }
+  }
+
+  if (method === 'PARTIAL') {
+    if (!provider.partialPayEnabled) {
+      throw ApiError.badRequest('This store doesn’t accept partial payment.');
+    }
+    const blocked = lines.filter((l) => !byId.get(l.productId)?.partialPayEnabled);
+    if (blocked.length > 0) {
+      throw ApiError.badRequest(
+        `Partial payment isn't available for ${blocked.map((l) => l.name).join(', ')}. ` +
+          `Choose full online payment or remove ${blocked.length > 1 ? 'these items' : 'this item'} from your order.`,
+      );
+    }
+  }
+
   const depositPct = method === 'PARTIAL' ? provider.depositPercent || 20 : 0;
   const depositMinor = Math.max(0, Math.round((total * depositPct) / 100));
 
@@ -232,6 +272,7 @@ async function finalizeOrderPlan(
     });
 
     for (const l of plan.lines) {
+      if (l.unlimitedStock) continue;
       await tx.product.update({
         where: { id: l.productId },
         data: { stockQty: { decrement: l.quantity } },
@@ -321,7 +362,7 @@ async function cancelByCustomer(userId: string, orderId: string) {
   const refunded = refund > 0 ? await refundPayment(order.paymentRef, refund) : false;
 
   await prisma.$transaction([
-    ...restoreStockOps(order.items),
+    ...(await restoreStockOps(order.items)),
     prisma.order.update({
       where: { id: orderId },
       data: { status: 'CANCELLED', ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}) },
@@ -403,7 +444,7 @@ async function updateStatus(
 
   if (status === 'CANCELLED') {
     await prisma.$transaction([
-      ...restoreStockOps(order.items),
+      ...(await restoreStockOps(order.items)),
       prisma.order.update({
         where: { id: orderId },
         data: {

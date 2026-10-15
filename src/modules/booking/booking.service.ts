@@ -86,6 +86,20 @@ async function create(userId: string, input: CreateBookingInput) {
     throw ApiError.badRequest('That service is not available');
   }
 
+  const method = input.paymentMethod ?? 'ONLINE';
+  if (method === 'PARTIAL') {
+    if (!service.partialPayEnabled) {
+      throw ApiError.badRequest('Partial payment isn’t available for this service.');
+    }
+    const partialProvider = await prisma.provider.findUnique({
+      where: { id: input.providerId },
+      select: { partialPayEnabled: true },
+    });
+    if (!partialProvider?.partialPayEnabled) {
+      throw ApiError.badRequest('This business doesn’t accept partial payment.');
+    }
+  }
+
   // On-location service — the provider travels to the customer, so we need
   // somewhere to go and a distance-based fee to add to the total.
   let travelFeeMinor = 0;
@@ -157,7 +171,7 @@ async function create(userId: string, input: CreateBookingInput) {
           discountMinor,
           couponCode: appliedCoupon?.code ?? null,
           currency: service.currency,
-          paymentMethod: input.paymentMethod ?? 'ONLINE',
+          paymentMethod: method,
           serviceAddressLine,
           serviceLat,
           serviceLng,

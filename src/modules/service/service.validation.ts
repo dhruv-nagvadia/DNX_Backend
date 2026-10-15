@@ -10,6 +10,7 @@ export const createServiceSchema = z.object({
     travelRequired: z.coerce.boolean().optional(),
     travelBaseFee: z.coerce.number().min(0).optional(),
     travelPerKm: z.coerce.number().min(0).optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });
 
@@ -40,5 +41,6 @@ export const updateServiceSchema = z.object({
     travelRequired: z.coerce.boolean().optional(),
     travelBaseFee: z.coerce.number().min(0).optional(),
     travelPerKm: z.coerce.number().min(0).optional(),
+    partialPayEnabled: z.boolean().optional(),
   }),
 });

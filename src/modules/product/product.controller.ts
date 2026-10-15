@@ -56,6 +56,17 @@ const adjustStock = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, product, 'Stock updated');
 });
 
+const setStockStatus = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const product = await productService.setStockStatus(
+    req.user.sub,
+    req.params.id,
+    req.params.productId,
+    req.body.inStock,
+  );
+  sendSuccess(res, product, product.stockQty > 0 ? 'Marked in stock' : 'Marked out of stock');
+});
+
 /** Public product search — matches by name, backing the mobile app's "Product" search type. */
 const searchPublic = asyncHandler(async (req: Request, res: Response) => {
   const result = await productService.searchPublic(req.query as unknown as SearchProductQuery);
@@ -74,6 +85,7 @@ export const productController = {
   update,
   remove,
   adjustStock,
+  setStockStatus,
   searchPublic,
   listProductTypes,
 };

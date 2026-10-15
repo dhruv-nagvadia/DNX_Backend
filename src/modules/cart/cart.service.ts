@@ -3,11 +3,30 @@ import { prisma } from '@/lib/prisma';
 
 const cartInclude = {
   product: {
-    include: { provider: { select: { id: true, businessName: true, depositPercent: true } } },
+    include: {
+      provider: {
+        select: {
+          id: true,
+          businessName: true,
+          depositPercent: true,
+          codEnabled: true,
+          partialPayEnabled: true,
+        },
+      },
+    },
   },
 } satisfies Prisma.CartItemInclude;
 
 type CartRow = Prisma.CartItemGetPayload<{ include: typeof cartInclude }>;
+
+/** unlimitedStock products reuse stockQty as a plain 0/1 availability flag
+ * (see product.service's setStockStatus) — no real count to cap against, so
+ * the quantity only zeroes out when currently marked out of stock. Tracked
+ * products cap to the real count as before. */
+function cappedQuantity(quantity: number, product: { stockQty: number; unlimitedStock: boolean }) {
+  if (product.unlimitedStock) return product.stockQty > 0 ? quantity : 0;
+  return Math.min(quantity, product.stockQty);
+}
 
 /** Shape the mobile cart consumes (base-unit quantity, clamped to stock). */
 function toClientItem(row: CartRow) {
@@ -24,9 +43,14 @@ function toClientItem(row: CartRow) {
     unit: p.unit,
     stepQty: p.stepQty,
     stockQty: p.stockQty,
+    unlimitedStock: p.unlimitedStock,
     imageUrl: p.imageUrl,
     depositPercent: p.provider.depositPercent,
-    quantity: Math.min(row.quantity, p.stockQty),
+    // Store's own flags AND this product's — never re-enabled by the
+    // product if the store itself has opted out entirely.
+    codEnabled: p.codEnabled && p.provider.codEnabled,
+    partialPayEnabled: p.partialPayEnabled && p.provider.partialPayEnabled,
+    quantity: cappedQuantity(row.quantity, p),
   };
 }
 
@@ -58,7 +82,7 @@ async function replaceCart(userId: string, items: { productId: string; quantity:
     .map(([id, qty]) => ({
       userId,
       productId: id,
-      quantity: Math.min(qty, byId.get(id)!.stockQty),
+      quantity: cappedQuantity(qty, byId.get(id)!),
     }))
     .filter((r) => r.quantity > 0);
 

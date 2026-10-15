@@ -223,8 +223,17 @@ model Provider {
 
   ratingAvg    Float    @default(0)
   ratingCount  Int      @default(0)
-  // % of the total a customer must pay up front for a "partial" booking (0 = off).
+  // % of the total a customer must pay up front for a "partial" booking.
+  // 0/unset falls back to a 20% default whenever Partial Pay is enabled —
+  // see partialPayEnabled for the actual on/off switch.
   depositPercent Int    @default(0)
+  // Whether this business accepts Cash on Delivery at all — a product's own
+  // codEnabled can only narrow this further, never override it back on.
+  codEnabled   Boolean  @default(true)
+  // Whether this business offers Partial Pay at all — a product's/service's
+  // own partialPayEnabled can only narrow this further, never override it
+  // back on.
+  partialPayEnabled Boolean @default(true)
   isVerified   Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -297,6 +306,9 @@ model Service {
   currency      String   @default("INR")
   durationMin   Int      @default(30)
   isActive      Boolean  @default(true)
+  // Overrides the business's own partialPayEnabled to turn Partial Pay OFF
+  // for just this service — can only restrict, never re-enable it.
+  partialPayEnabled Boolean @default(true)
 
   // On-location services (plumber, electrician…) — the provider travels to
   // the customer instead of the customer coming to the business. The travel
@@ -482,8 +494,14 @@ model Product {
   currency    String   @default("INR")
   // A base-unit label kept for display/back-compat ("g", "ml", "piece"…).
   unit        String   @default("piece")
-  // Tracked inventory in base units (e.g. 15 kg → 15000).
+  // Tracked inventory in base units (e.g. 15 kg → 15000). Ignored entirely
+  // when unlimitedStock is on (made-to-order items with no fixed quantity,
+  // e.g. a restaurant dish) — never checked, decremented, or restored.
   stockQty    Float    @default(0)
+  // Made-to-order / no fixed quantity — never shows as out of stock or low
+  // stock, and stockQty is ignored everywhere (order placement, cart capping,
+  // manual stock adjustments).
+  unlimitedStock Boolean @default(false)
   // Minimum order + step increment, in base units (e.g. 100 g → 100).
   stepQty     Float    @default(1)
   // Storefront grouping / aisle, e.g. "Grains", "Toiletries" (for section rows).
@@ -493,6 +511,12 @@ model Product {
   ratingAvg   Float    @default(0)
   ratingCount Int      @default(0)
   isActive    Boolean  @default(true)
+  // Overrides the store's own codEnabled to turn Cash on Delivery OFF for
+  // just this product (e.g. a high-value item) — can only restrict, never
+  // re-enable COD for a store that has it off entirely.
+  codEnabled  Boolean  @default(true)
+  // Same idea for Partial Pay — can only turn it off for this one product.
+  partialPayEnabled Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -19,6 +19,7 @@ import {
   createProductSchema,
   updateProductSchema,
   adjustStockSchema,
+  setStockStatusSchema,
 } from '@/modules/product/product.validation';
 import { orderController } from '@/modules/order/order.controller';
 import { updateOrderStatusSchema } from '@/modules/order/order.validation';
@@ -170,6 +171,12 @@ providerRoutes.patch(
   '/businesses/:id/products/:productId/stock',
   validate(adjustStockSchema),
   productController.adjustStock,
+);
+// Quick in/out-of-stock flip for a made-to-order (unlimitedStock) product.
+providerRoutes.patch(
+  '/businesses/:id/products/:productId/availability',
+  validate(setStockStatusSchema),
+  productController.setStockStatus,
 );
 
 // Discount coupons within a business
