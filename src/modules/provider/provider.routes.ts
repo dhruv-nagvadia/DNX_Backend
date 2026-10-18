@@ -28,6 +28,8 @@ import { reviewController } from '@/modules/review/review.controller';
 import { replyToReviewSchema } from '@/modules/review/review.validation';
 import { couponController } from '@/modules/coupon/coupon.controller';
 import { createCouponSchema, updateCouponSchema } from '@/modules/coupon/coupon.validation';
+import { commissionController } from '@/modules/commission/commission.controller';
+import { earningsQuerySchema } from '@/modules/commission/commission.validation';
 import { authController } from '@/modules/auth/auth.controller';
 import {
   loginSchema,
@@ -77,6 +79,9 @@ providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
 
 // Single-image upload (product photos) — returns the hosted URL.
 providerRoutes.post('/uploads/image', imageUpload.single('image'), providerController.uploadImage);
+
+// Earnings after the platform's commission, plus what's owed to / by the provider
+providerRoutes.get('/earnings', validate(earningsQuerySchema), commissionController.earnings);
 
 // Home dashboard — bookings across every owned business
 providerRoutes.get('/bookings', providerController.listAllBookings);

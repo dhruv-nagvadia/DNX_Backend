@@ -6,6 +6,22 @@ import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema } from '@/modules/auth/auth.validation';
 import { adminAnalyticsController } from './admin.analytics.controller';
+import { adminUsersController } from './admin.users.controller';
+import {
+  blockUserSchema,
+  createPenaltySchema,
+  updatePenaltyStatusSchema,
+} from './admin.users.validation';
+import { adminConfigController } from './admin.config.controller';
+import { updatePlatformConfigSchema } from './admin.config.validation';
+import { adminFinanceController } from './admin.finance.controller';
+import {
+  breakdownQuerySchema,
+  financeRangeSchema,
+  transactionsQuerySchema,
+  recordPayoutSchema,
+  setBusinessCommissionSchema,
+} from './admin.finance.validation';
 import { platformCouponController } from '@/modules/platformCoupon/platformCoupon.controller';
 import {
   createPlatformCouponSchema,
@@ -25,6 +41,51 @@ adminRoutes.post('/auth/login', authLimiter, validate(loginSchema), authControll
 adminRoutes.use(requireAuth, requireRole(Role.ADMIN));
 
 adminRoutes.get('/analytics/overview', adminAnalyticsController.overview);
+
+// Customers — no-show history, manual penalty charges, account blocking.
+adminRoutes.get('/users', adminUsersController.list);
+adminRoutes.get('/users/:userId', adminUsersController.detail);
+adminRoutes.post('/users/:userId/block', validate(blockUserSchema), adminUsersController.block);
+adminRoutes.post('/users/:userId/unblock', adminUsersController.unblock);
+adminRoutes.post(
+  '/users/:userId/penalties',
+  validate(createPenaltySchema),
+  adminUsersController.createPenalty,
+);
+adminRoutes.patch(
+  '/penalties/:penaltyId',
+  validate(updatePenaltyStatusSchema),
+  adminUsersController.updatePenaltyStatus,
+);
+adminRoutes.post('/users/:userId/disable-cod', adminUsersController.disableCod);
+adminRoutes.post('/users/:userId/enable-cod', adminUsersController.enableCod);
+
+// Platform-wide settings (e.g. the order pickup window before a no-show can be marked).
+adminRoutes.get('/config', adminConfigController.get);
+adminRoutes.patch('/config', validate(updatePlatformConfigSchema), adminConfigController.update);
+
+// Money: commission earned, gateway fees, profit, and what's owed to each provider.
+adminRoutes.get('/finance/overview', validate(financeRangeSchema), adminFinanceController.overview);
+adminRoutes.get(
+  '/finance/transactions',
+  validate(transactionsQuerySchema),
+  adminFinanceController.transactions,
+);
+adminRoutes.get(
+  '/finance/breakdown',
+  validate(breakdownQuerySchema),
+  adminFinanceController.breakdown,
+);
+adminRoutes.get('/finance/balances', adminFinanceController.balances);
+adminRoutes.get('/finance/businesses', adminFinanceController.businesses);
+adminRoutes.patch(
+  '/finance/businesses/:businessId/commission',
+  validate(setBusinessCommissionSchema),
+  adminFinanceController.setBusinessCommission,
+);
+adminRoutes.get('/finance/payouts', adminFinanceController.listPayouts);
+adminRoutes.post('/finance/payouts', validate(recordPayoutSchema), adminFinanceController.recordPayout);
+adminRoutes.delete('/finance/payouts/:payoutId', adminFinanceController.deletePayout);
 
 // Platform-wide coupons — usable across any business, unlike a provider's own.
 adminRoutes.get('/coupons', platformCouponController.list);

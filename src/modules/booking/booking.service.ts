@@ -5,6 +5,8 @@ import { refundPayment } from '@/lib/razorpay';
 import { haversineKm } from '@/utils/geo';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
+import { commissionService } from '@/modules/commission/commission.service';
+import { settledAtFor } from '@/modules/commission/commission.calc';
 import { CreateBookingInput } from './booking.types';
 
 // Customer-facing copy for the statuses a provider can move a booking to.
@@ -73,11 +75,16 @@ const ownerBookingSelect = {
 // Allowed provider-driven status transitions (others are terminal).
 const PROVIDER_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['COMPLETED', 'CANCELLED'],
+  CONFIRMED: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
   COMPLETED: [],
   CANCELLED: [],
   NO_SHOW: [],
 };
+
+// A no-show forfeits whatever was paid instead of refunding it — this many
+// repeat no-shows (on a CASH booking, where there's nothing to forfeit)
+// escalates the warning to mention charges/blocking.
+const NO_SHOW_WARNING_THRESHOLD = 3;
 
 /** Books a service slot for the customer. */
 async function create(userId: string, input: CreateBookingInput) {
@@ -87,6 +94,14 @@ async function create(userId: string, input: CreateBookingInput) {
   }
 
   const method = input.paymentMethod ?? 'ONLINE';
+  if (method === 'CASH') {
+    const customer = await prisma.user.findUnique({ where: { id: userId }, select: { codDisabled: true } });
+    if (customer?.codDisabled) {
+      throw ApiError.badRequest(
+        'Cash on Delivery isn’t available for your account — pay online or with a partial deposit instead.',
+      );
+    }
+  }
   if (method === 'PARTIAL') {
     if (!service.partialPayEnabled) {
       throw ApiError.badRequest('Partial payment isn’t available for this service.');
@@ -154,6 +169,7 @@ async function create(userId: string, input: CreateBookingInput) {
   }
   // Travel fee is a separate surcharge, added after the (service-only) discount.
   const total = subtotal - discountMinor + travelFeeMinor;
+  const commissionBps = await commissionService.rateBpsFor(input.providerId);
 
   let booking;
   try {
@@ -176,6 +192,9 @@ async function create(userId: string, input: CreateBookingInput) {
           serviceLat,
           serviceLng,
           travelFeeMinor,
+          // The platform's cut is fixed now, so a later rate change never
+          // rewrites what this booking was agreed under.
+          commissionBps,
         },
         select: bookingSelect,
       });
@@ -266,9 +285,14 @@ async function updateStatus(
       `A ${booking.status.toLowerCase()} booking can't be marked ${status.toLowerCase()}.`,
     );
   }
+  // A no-show can only be called once the appointment was actually due —
+  // stops a provider from forfeiting a customer's money pre-emptively.
+  if (status === 'NO_SHOW' && booking.startTime.getTime() > Date.now()) {
+    throw ApiError.badRequest('You can only mark a booking no-show after its start time.');
+  }
 
   // Cancelling a paid booking refunds what was paid via Razorpay (a no-op for
-  // cash/test-mode payments).
+  // cash/test-mode payments). A no-show forfeits it instead — no refund.
   const refund =
     status === 'CANCELLED' && booking.paymentStatus !== 'REFUNDED'
       ? Math.max(0, booking.amountPaidMinor)
@@ -279,8 +303,9 @@ async function updateStatus(
     where: { id: bookingId },
     data: {
       status,
-      // Only store a reason when cancelling.
-      cancelReason: status === 'CANCELLED' ? reason ?? null : undefined,
+      // Stored for cancelling and no-showing (an optional provider note).
+      cancelReason: status === 'CANCELLED' || status === 'NO_SHOW' ? reason ?? null : undefined,
+      settledAt: settledAtFor(status),
       ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
     },
     select: providerBookingSelect,
@@ -294,8 +319,22 @@ async function updateStatus(
       body = refunded
         ? `${copy} — ${formatINR(refund)} has been refunded`
         : `${copy} — your ${formatINR(refund)} refund is still being processed`;
+    } else if (status === 'NO_SHOW') {
+      if (booking.paymentMethod === 'CASH') {
+        // The status update above already landed, so this booking itself is
+        // counted here too — the raw count already includes it.
+        const totalNoShows = await prisma.booking.count({
+          where: { userId: booking.userId, status: 'NO_SHOW' },
+        });
+        body =
+          totalNoShows >= NO_SHOW_WARNING_THRESHOLD
+            ? `${copy} — repeated no-shows may lead to charges or your account being blocked.`
+            : `${copy} — please show up for your upcoming bookings.`;
+      } else if (booking.amountPaidMinor > 0) {
+        body = `${copy} — your payment isn't refundable since you didn't show up. Reschedule instead next time to avoid this.`;
+      }
     }
-    if (status === 'CANCELLED' && reason) body += `: ${reason}`;
+    if ((status === 'CANCELLED' || status === 'NO_SHOW') && reason) body += `: ${reason}`;
     await notificationService.notify({
       userId: booking.userId,
       type: 'BOOKING_STATUS',
@@ -317,13 +356,21 @@ async function cancelByCustomer(userId: string, bookingId: string) {
     throw ApiError.badRequest('This booking can no longer be cancelled.');
   }
 
-  // Any money already paid is refunded via Razorpay (a no-op for cash/test-mode payments).
-  const refund = booking.paymentStatus === 'REFUNDED' ? 0 : Math.max(0, booking.amountPaidMinor);
+  // Cancelling after the appointment's start time forfeits the payment —
+  // functionally the same as not showing up. Only a cancellation made while
+  // there's still time to spare gets refunded.
+  const isPastStart = booking.startTime.getTime() <= Date.now();
+  const refund =
+    !isPastStart && booking.paymentStatus !== 'REFUNDED' ? Math.max(0, booking.amountPaidMinor) : 0;
   const refunded = refund > 0 ? await refundPayment(booking.paymentRef, refund) : false;
 
   const updated = await prisma.booking.update({
     where: { id: bookingId },
-    data: { status: 'CANCELLED', ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}) },
+    data: {
+      status: 'CANCELLED',
+      settledAt: new Date(),
+      ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
+    },
     select: bookingSelect,
   });
 
@@ -338,15 +385,29 @@ async function cancelByCustomer(userId: string, bookingId: string) {
       type: 'BOOKING_CANCELLED',
       title: 'Booking cancelled',
       body:
-        'A customer cancelled their booking' + (refunded ? ` — ${formatINR(refund)} refunded` : ''),
+        'A customer cancelled their booking' +
+        (refunded
+          ? ` — ${formatINR(refund)} refunded`
+          : isPastStart && booking.amountPaidMinor > 0
+            ? ' — after the start time, so the payment was not refunded'
+            : ''),
       entityType: 'BOOKING',
       entityId: bookingId,
     });
   }
 
-  // Confirm the refund to the customer — or flag it for manual follow-up if
-  // the Razorpay refund itself failed (rare; the booking is still cancelled).
-  if (refund > 0) {
+  // Confirm the refund to the customer, explain why there isn't one when
+  // cancelling late, or flag a real Razorpay failure for manual follow-up.
+  if (isPastStart && booking.amountPaidMinor > 0) {
+    await notificationService.notify({
+      userId,
+      type: 'BOOKING_STATUS',
+      title: 'Booking cancelled',
+      body: "Your payment isn't refundable since you cancelled after the appointment's start time.",
+      entityType: 'BOOKING',
+      entityId: bookingId,
+    });
+  } else if (refund > 0) {
     await notificationService.notify({
       userId,
       type: 'BOOKING_STATUS',

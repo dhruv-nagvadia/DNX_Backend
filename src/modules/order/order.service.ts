@@ -3,7 +3,13 @@ import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { isRazorpayConfigured, refundPayment } from '@/lib/razorpay';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
-import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
+import {
+  platformCouponService,
+  ResolvedCheckoutCoupon,
+} from '@/modules/platformCoupon/platformCoupon.service';
+import { platformConfigService } from '@/modules/platformConfig/platformConfig.service';
+import { commissionService } from '@/modules/commission/commission.service';
+import { settledAtFor } from '@/modules/commission/commission.calc';
 import { CreateOrderInput } from './order.types';
 
 // Customer-facing copy for each order status the provider can move an order to.
@@ -13,7 +19,13 @@ const ORDER_STATUS_COPY: Record<OrderStatus, string> = {
   READY: 'Your order is ready for pickup',
   COMPLETED: 'Your order is complete — thank you!',
   CANCELLED: 'Your order was cancelled',
+  NO_SHOW: "You didn't collect your order",
 };
+
+// A no-show forfeits whatever was paid instead of refunding it — this many
+// repeat no-shows (on a CASH order, where there's nothing to forfeit)
+// escalates the warning to mention charges/blocking.
+const NO_SHOW_WARNING_THRESHOLD = 3;
 
 // What the customer app sees for each order (with business + product images).
 const orderInclude = {
@@ -42,9 +54,10 @@ const providerOrderInclude = {
 const PROVIDER_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['READY', 'CANCELLED'],
-  READY: ['COMPLETED', 'CANCELLED'],
+  READY: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
   COMPLETED: [],
   CANCELLED: [],
+  NO_SHOW: [],
 };
 
 /** Ops that put an order's items back into stock (used when cancelling).
@@ -236,9 +249,18 @@ async function finalizeOrderPlan(
     status: 'PENDING' | 'CONFIRMED';
     razorpayOrderId?: string;
     paymentRef?: string;
+    /** This order's share of the gateway fee, when one payment covered several orders. */
+    gatewayFeeMinor?: number;
   },
 ) {
   const productIds = plan.lines.map((l) => l.productId);
+  // The platform's cut is fixed now, and whatever went through the gateway is
+  // recorded (with its estimated fee) so earnings can tell online from cash.
+  const commissionBps = await commissionService.rateBpsFor(plan.providerId);
+  const online =
+    payment.gatewayFeeMinor !== undefined
+      ? { onlinePaidMinor: payment.amountPaidMinor, gatewayFeeMinor: payment.gatewayFeeMinor }
+      : await commissionService.onlinePaymentFields(payment.amountPaidMinor);
 
   const order = await prisma.$transaction(async (tx) => {
     const created = await tx.order.create({
@@ -256,6 +278,8 @@ async function finalizeOrderPlan(
         paymentStatus: payment.paymentStatus,
         razorpayOrderId: payment.razorpayOrderId,
         paymentRef: payment.paymentRef,
+        commissionBps,
+        ...online,
         items: {
           create: plan.lines.map((l) => ({
             productId: l.productId,
@@ -265,6 +289,7 @@ async function finalizeOrderPlan(
             priceQty: l.priceQty,
             unit: l.unit,
             quantity: l.quantity,
+            unlimitedStock: l.unlimitedStock,
           })),
         },
       },
@@ -313,6 +338,17 @@ async function finalizeOrderPlan(
  */
 async function create(userId: string, input: CreateOrderInput) {
   const plan = await buildOrderPlan(input);
+  if (plan.method === 'CASH') {
+    const customer = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { codDisabled: true },
+    });
+    if (customer?.codDisabled) {
+      throw ApiError.badRequest(
+        'Cash on Delivery isn’t available for your account — pay online or with a partial deposit instead.',
+      );
+    }
+  }
   const configured = isRazorpayConfigured();
 
   if (configured && plan.method !== 'CASH') {
@@ -347,6 +383,35 @@ async function listMine(userId: string) {
 }
 
 /** Customer cancels their own order (while still cancellable); restores stock. */
+/** A line's price, computed the same way buildOrderPlan does. */
+function lineTotal(i: { quantity: number; priceQty: number; priceMinor: number }): number {
+  return Math.round((i.quantity / i.priceQty) * i.priceMinor);
+}
+
+/**
+ * How much of amountPaidMinor to refund when an order is cancelled or marked
+ * no-show. Ordinary tracked-stock items always refund in full — they just go
+ * back on the shelf (restoreStockOps already handles that separately). A
+ * made-to-order item (unlimitedStock, snapshotted per line at order time)
+ * only refunds if nothing has started yet (still PENDING); once the store
+ * has accepted/is preparing it, that portion is forfeited instead — and for
+ * a mixed cart, only its proportional share of whatever was actually paid.
+ */
+function computeRefund(
+  order: { amountPaidMinor: number; paymentStatus: string; status: OrderStatus },
+  items: { quantity: number; priceQty: number; priceMinor: number; unlimitedStock: boolean }[],
+): number {
+  if (order.paymentStatus === 'REFUNDED' || order.amountPaidMinor <= 0) return 0;
+  if (order.status === 'PENDING') return order.amountPaidMinor;
+
+  const staticSubtotal = items
+    .filter((i) => !i.unlimitedStock)
+    .reduce((s, i) => s + lineTotal(i), 0);
+  const totalSubtotal = items.reduce((s, i) => s + lineTotal(i), 0);
+  if (totalSubtotal <= 0) return 0;
+  return Math.round(order.amountPaidMinor * (staticSubtotal / totalSubtotal));
+}
+
 async function cancelByCustomer(userId: string, orderId: string) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
@@ -357,15 +422,29 @@ async function cancelByCustomer(userId: string, orderId: string) {
     throw ApiError.badRequest('This order can no longer be cancelled.');
   }
 
-  // Any money already paid is refunded via Razorpay (a no-op for cash/test-mode payments).
-  const refund = order.paymentStatus === 'REFUNDED' ? 0 : Math.max(0, order.amountPaidMinor);
+  // `refund` is the intended amount (could be 0, the full amountPaidMinor, or
+  // a proportional share for a mixed cart); `refunded` is whether the actual
+  // Razorpay call for that amount succeeded — kept separate so a mixed-cart
+  // partial refund is never confused with a full refund that merely failed.
+  const refund = computeRefund(order, order.items);
+  const forfeited = order.amountPaidMinor - refund;
+  const fullIntended = refund >= order.amountPaidMinor;
   const refunded = refund > 0 ? await refundPayment(order.paymentRef, refund) : false;
 
   await prisma.$transaction([
     ...(await restoreStockOps(order.items)),
     prisma.order.update({
       where: { id: orderId },
-      data: { status: 'CANCELLED', ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}) },
+      data: {
+        status: 'CANCELLED',
+        settledAt: new Date(),
+        ...(refunded
+          ? {
+              refundedMinor: refund,
+              ...(fullIntended ? { paymentStatus: 'REFUNDED' as const } : {}),
+            }
+          : {}),
+      },
     }),
   ]);
 
@@ -376,14 +455,41 @@ async function cancelByCustomer(userId: string, orderId: string) {
     title: 'Order cancelled',
     body:
       `A customer cancelled their ${formatINR(order.amountMinor)} order` +
-      (refunded ? ` — ${formatINR(refund)} refunded` : ''),
+      (refund === 0 && order.amountPaidMinor > 0
+        ? ' — already being prepared, so the payment was not refunded'
+        : refunded && fullIntended
+          ? ` — ${formatINR(refund)} refunded`
+          : refunded
+            ? ` — ${formatINR(refund)} refunded, ${formatINR(forfeited)} not refunded (already being prepared)`
+            : ''),
     entityType: 'ORDER',
     entityId: orderId,
   });
 
-  // Confirm the refund to the customer — or flag it for manual follow-up if
-  // the Razorpay refund itself failed (rare; the order is still cancelled).
-  if (refund > 0) {
+  // Confirm the refund to the customer — fully, partially, or not at all,
+  // depending on how much of the order had already started being prepared —
+  // or flag a real Razorpay failure for manual follow-up.
+  if (refund === 0 && order.amountPaidMinor > 0) {
+    await notificationService.notify({
+      userId,
+      type: 'ORDER_STATUS',
+      title: 'Order cancelled',
+      body: "Your payment isn't refundable since the store had already started preparing your order.",
+      entityType: 'ORDER',
+      entityId: orderId,
+    });
+  } else if (refund > 0 && !fullIntended) {
+    await notificationService.notify({
+      userId,
+      type: 'ORDER_STATUS',
+      title: refunded ? 'Partial refund issued' : 'Refund pending',
+      body: refunded
+        ? `${formatINR(refund)} has been refunded; ${formatINR(forfeited)} isn't refundable since those items were already being prepared.`
+        : `Your cancelled order's ${formatINR(refund)} refund is still being processed — contact support if it doesn't appear soon.`,
+      entityType: 'ORDER',
+      entityId: orderId,
+    });
+  } else if (refund > 0) {
     await notificationService.notify({
       userId,
       type: 'ORDER_STATUS',
@@ -421,28 +527,42 @@ async function getOwnedOrder(userId: string, orderId: string) {
 }
 
 /** Provider advances an order's status (confirm → ready → completed, or cancel). */
-async function updateStatus(
-  userId: string,
-  orderId: string,
-  status: OrderStatus,
-  reason?: string,
-) {
+async function updateStatus(userId: string, orderId: string, status: OrderStatus, reason?: string) {
   const order = await getOwnedOrder(userId, orderId);
   if (!PROVIDER_ORDER_TRANSITIONS[order.status].includes(status)) {
     throw ApiError.badRequest(
       `A ${order.status.toLowerCase()} order can't be marked ${status.toLowerCase()}.`,
     );
   }
-  // Cancelling a paid order refunds what was paid via Razorpay (a no-op for
-  // cash/test-mode payments).
+  // A no-show can only be called once the customer had a fair, configurable
+  // window to come collect it (defaults to 24h from when it was marked ready).
+  if (status === 'NO_SHOW') {
+    const { orderPickupWindowHours } = await platformConfigService.getConfig();
+    const windowMs = orderPickupWindowHours * 60 * 60 * 1000;
+    if (!order.readyAt || order.readyAt.getTime() + windowMs > Date.now()) {
+      throw ApiError.badRequest(
+        `You can only mark an order no-show after the ${orderPickupWindowHours}h pickup window has passed.`,
+      );
+    }
+  }
+  // A provider cancelling always refunds in full — that's the business's own
+  // call, not the customer's fault. A no-show instead applies the same
+  // made-to-order-aware split as a customer's own late cancellation.
   const refund =
     status === 'CANCELLED' && order.paymentStatus !== 'REFUNDED'
       ? Math.max(0, order.amountPaidMinor)
-      : 0;
+      : status === 'NO_SHOW'
+        ? computeRefund(order, order.items)
+        : 0;
+  const forfeited = order.amountPaidMinor - refund;
+  const fullIntended = refund >= order.amountPaidMinor;
   const refunded = refund > 0 ? await refundPayment(order.paymentRef, refund) : false;
-  const cancelReason = status === 'CANCELLED' ? reason?.trim() || null : undefined;
+  const cancelReason =
+    status === 'CANCELLED' || status === 'NO_SHOW' ? reason?.trim() || null : undefined;
 
-  if (status === 'CANCELLED') {
+  if (status === 'CANCELLED' || status === 'NO_SHOW') {
+    // Stock still goes back either way — a physical item can be resold even
+    // though the payment for a no-show isn't refunded.
     await prisma.$transaction([
       ...(await restoreStockOps(order.items)),
       prisma.order.update({
@@ -450,12 +570,25 @@ async function updateStatus(
         data: {
           status,
           cancelReason,
-          ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
+          settledAt: new Date(),
+          ...(refunded
+            ? {
+                refundedMinor: refund,
+                ...(fullIntended ? { paymentStatus: 'REFUNDED' as const } : {}),
+              }
+            : {}),
         },
       }),
     ]);
   } else {
-    await prisma.order.update({ where: { id: orderId }, data: { status } });
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status,
+        settledAt: settledAtFor(status),
+        ...(status === 'READY' ? { readyAt: new Date() } : {}),
+      },
+    });
   }
 
   // Keep the customer posted on their order (mention the refund / reason when cancelling).
@@ -465,6 +598,23 @@ async function updateStatus(
       body = refunded
         ? `Your order was cancelled — ${formatINR(refund)} will be refunded`
         : `Your order was cancelled — your ${formatINR(refund)} refund is still being processed`;
+    }
+    if (cancelReason) body += `: ${cancelReason}`;
+  } else if (status === 'NO_SHOW') {
+    if (order.paymentMethod === 'CASH') {
+      // The status update above already landed, so this order itself is
+      // counted here too — the raw count already includes it.
+      const totalNoShows = await prisma.order.count({
+        where: { userId: order.userId, status: 'NO_SHOW' },
+      });
+      body =
+        totalNoShows >= NO_SHOW_WARNING_THRESHOLD
+          ? `${body} — repeated no-shows may lead to charges or your account being blocked.`
+          : `${body} — please collect your orders on time.`;
+    } else if (refund > 0 && !fullIntended) {
+      body = `${body} — ${formatINR(refund)} will be refunded, but ${formatINR(forfeited)} isn't since those items were already being prepared.`;
+    } else if (order.amountPaidMinor > 0) {
+      body = `${body} — your payment isn't refundable since you didn't collect it.`;
     }
     if (cancelReason) body += `: ${cancelReason}`;
   }

@@ -96,6 +96,20 @@ enum OrderStatus {
   READY
   COMPLETED
   CANCELLED
+  NO_SHOW
+}
+
+enum PenaltyStatus {
+  PENDING
+  PAID
+  WAIVED
+}
+
+// Which way money moved in a manual settlement between the platform and a
+// provider account.
+enum PayoutDirection {
+  TO_PROVIDER // the platform paid the provider their earnings
+  FROM_PROVIDER // the provider paid the platform commission they owed (e.g. on cash sales)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -103,22 +117,32 @@ enum OrderStatus {
 // ────────────────────────────────────────────────────────────────────────────
 
 model User {
-  id           String   @id @default(cuid())
-  email        String
-  phone        String?
-  passwordHash String
-  fullName     String
-  role         Role     @default(USER)
-  avatarUrl    String?
-  isActive     Boolean  @default(true)
+  id            String    @id @default(cuid())
+  email         String
+  phone         String?
+  passwordHash  String
+  fullName      String
+  role          Role      @default(USER)
+  avatarUrl     String?
+  isActive      Boolean   @default(true)
+  // Admin-imposed restriction (e.g. repeated no-shows) — blocks login and
+  // creating new bookings/orders/payments. Distinct from isActive, which is
+  // reserved for account deletion/deactivation by the user themselves.
+  isBlocked     Boolean   @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+  // Admin-imposed, lighter than a full block — this one customer can no
+  // longer choose Cash on Delivery (repeated no-shows/refusals), but can
+  // still pay online/partial and otherwise use the app normally.
+  codDisabled   Boolean   @default(false)
   // Captured at signup (from a typed PIN code, or GPS reverse-geocoding) so
   // Home-screen content has a location to filter by even before the customer
   // grants location permission or sets one manually.
-  postalCode   String?
-  city         String?
-  state        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  postalCode    String?
+  city          String?
+  state         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   // "Forgot password" — a hashed one-time code emailed to the account,
   // valid for a short window. Cleared once used or superseded.
@@ -127,23 +151,27 @@ model User {
   resetOtpAttempts  Int       @default(0)
 
   // A provider user can own multiple businesses.
-  providers Provider[]
+  providers      Provider[]
   // Bookings this user has made as a customer.
-  bookings  Booking[]
+  bookings       Booking[]
   // Product orders this user has placed as a customer.
-  orders    Order[]
+  orders         Order[]
   // The user's saved shopping cart (persists across sessions).
-  cartItems CartItem[]
+  cartItems      CartItem[]
   // Reviews this user has written.
-  reviews   Review[]
+  reviews        Review[]
   // Per-product reviews this user has written.
   productReviews ProductReview[]
   // Personal reminders (renewals, follow-ups, etc.).
-  reminders Reminder[]
+  reminders      Reminder[]
+  // Settlements recorded between the platform and this provider account.
+  payouts        ProviderPayout[]
   // In-app notifications addressed to this user (customer or provider).
-  notifications Notification[]
+  notifications  Notification[]
   // Saved addresses (for on-location service bookings — see Address below).
-  addresses Address[]
+  addresses      Address[]
+  // Manual penalty charges an admin has levied against this account.
+  penalties      UserPenalty[]
 
   // Accounts are per-audience: the same email can exist once as a customer
   // (USER) and once as a business (PROVIDER) — two independent accounts.
@@ -151,19 +179,89 @@ model User {
   @@index([role])
 }
 
+// A manual penalty an admin levies against a customer for repeated
+// no-shows — ledger-only, not wired to real payment collection. The admin
+// tracks collection outside the app and marks it PAID/WAIVED themselves.
+model UserPenalty {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  amountMinor      Int
+  reason           String
+  note             String?
+  status           PenaltyStatus @default(PENDING)
+  // The admin's own User.id — no relation, since admins aren't modeled as a
+  // distinct target elsewhere either (just a Role on the same User table).
+  createdByAdminId String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// Single-row table of platform-wide, admin-editable settings. The service
+// layer reads/creates the one row on demand (self-healing — no seed data
+// required) rather than this being a generic unbounded key/value store.
+model PlatformConfig {
+  id                     Int @id @default(autoincrement())
+  // How long a customer has to collect a READY pickup order before a
+  // provider can mark it NO_SHOW. Default matches common BOPIS practice.
+  orderPickupWindowHours Int @default(24)
+
+  // Platform commission taken from each completed sale, in basis points
+  // (1000 = 10%). A business can override it (Provider.commissionBps); the
+  // rate in force when a booking/order is created is snapshotted onto it, so
+  // changing this later only affects new sales.
+  commissionBps Int @default(1000)
+
+  // What the payment gateway charges the platform on an online payment — an
+  // estimate used for the profit view only (the customer never sees it).
+  // fee = gatewayFeeBps of the payment + gatewayFeeFlatMinor, charged only on
+  // payments above gatewayFeeAboveMinor (0 = every payment), capped at
+  // gatewayFeeCapMinor (0 = no cap). All default to 0 (no fee modelled).
+  gatewayFeeBps        Int @default(0)
+  gatewayFeeFlatMinor  Int @default(0)
+  gatewayFeeAboveMinor Int @default(0)
+  gatewayFeeCapMinor   Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+// A manual settlement between the platform and a provider account: the admin
+// records it after paying earnings out (or receiving owed commission) by
+// UPI/bank transfer. The provider's balance is their earnings minus these.
+model ProviderPayout {
+  id          String          @id @default(cuid())
+  // The provider account (owner of one or more businesses) it's settled with.
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  direction   PayoutDirection @default(TO_PROVIDER)
+  amountMinor Int
+  // How it was sent (UPI / bank transfer / cash) and a transaction reference.
+  method      String?
+  reference   String?
+  note        String?
+  paidAt      DateTime        @default(now())
+  createdAt   DateTime        @default(now())
+
+  @@index([userId])
+  @@index([paidAt])
+}
+
 model Category {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   // e.g. "medical", "salon", "fitness"
-  slug        String   @unique
+  slug        String       @unique
   name        String
   description String?
   iconUrl     String?
   // Whether this category is for service (appointment) or store (product) businesses.
   type        BusinessType @default(SERVICE)
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   providers       Provider[]
   services        Service[]
@@ -174,16 +272,16 @@ model Category {
 }
 
 model Subcategory {
-  id          String   @id @default(cuid())
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   // e.g. "dentist", "general-physician", "plumber"
-  slug        String   @unique
-  name        String
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  slug       String   @unique
+  name       String
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   providers Provider[]
 
@@ -192,7 +290,7 @@ model Subcategory {
 }
 
 model Provider {
-  id          String   @id @default(cuid())
+  id            String       @id @default(cuid())
   // The user account that owns/manages this business (a user can own many).
   userId        String
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -203,7 +301,7 @@ model Provider {
   subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
 
   // Time-based services (appointments) vs a goods store (product orders).
-  type          BusinessType @default(SERVICE)
+  type BusinessType @default(SERVICE)
 
   businessName String
   description  String?
@@ -211,33 +309,36 @@ model Provider {
   email        String?
 
   // Location (PostGIS can be added later for geo-radius queries).
-  addressLine  String?
-  city         String?
-  state        String?
-  postalCode   String?
-  latitude     Float?
-  longitude    Float?
+  addressLine String?
+  city        String?
+  state       String?
+  postalCode  String?
+  latitude    Float?
+  longitude   Float?
 
   // Business gallery image URLs (first one acts as the cover).
-  images       String[] @default([])
+  images String[] @default([])
 
-  ratingAvg    Float    @default(0)
-  ratingCount  Int      @default(0)
+  ratingAvg         Float    @default(0)
+  ratingCount       Int      @default(0)
   // % of the total a customer must pay up front for a "partial" booking.
   // 0/unset falls back to a 20% default whenever Partial Pay is enabled —
   // see partialPayEnabled for the actual on/off switch.
-  depositPercent Int    @default(0)
+  depositPercent    Int      @default(0)
   // Whether this business accepts Cash on Delivery at all — a product's own
   // codEnabled can only narrow this further, never override it back on.
-  codEnabled   Boolean  @default(true)
+  codEnabled        Boolean  @default(true)
   // Whether this business offers Partial Pay at all — a product's/service's
   // own partialPayEnabled can only narrow this further, never override it
   // back on.
-  partialPayEnabled Boolean @default(true)
-  isVerified   Boolean  @default(false)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  partialPayEnabled Boolean  @default(true)
+  // Per-business commission override in basis points; null = use the
+  // platform default (PlatformConfig.commissionBps).
+  commissionBps     Int?
+  isVerified        Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   services      Service[]
   bookings      Booking[]
@@ -264,7 +365,7 @@ model BusinessHour {
   id         String   @id @default(cuid())
   providerId String
   provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  dayOfWeek  Int      // 0 = Sunday ... 6 = Saturday
+  dayOfWeek  Int // 0 = Sunday ... 6 = Saturday
   isOpen     Boolean  @default(true)
   openTime   String   @default("09:00") // "HH:MM" 24-hour
   closeTime  String   @default("18:00")
@@ -293,19 +394,19 @@ model BusinessDateHour {
 }
 
 model Service {
-  id            String   @id @default(cuid())
-  providerId    String
-  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  categoryId    String
-  category      Category @relation(fields: [categoryId], references: [id])
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
 
-  name          String
-  description   String?
+  name              String
+  description       String?
   // Price stored in the smallest currency unit (e.g. paise/cents) to avoid float errors.
-  priceMinor    Int
-  currency      String   @default("INR")
-  durationMin   Int      @default(30)
-  isActive      Boolean  @default(true)
+  priceMinor        Int
+  currency          String  @default("INR")
+  durationMin       Int     @default(30)
+  isActive          Boolean @default(true)
   // Overrides the business's own partialPayEnabled to turn Partial Pay OFF
   // for just this service — can only restrict, never re-enable it.
   partialPayEnabled Boolean @default(true)
@@ -318,8 +419,8 @@ model Service {
   travelBaseFeeMinor Int     @default(0)
   travelPerKmMinor   Int     @default(0)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   bookings Booking[]
   // Coupons scoped to this specific service.
@@ -330,23 +431,23 @@ model Service {
 }
 
 model Booking {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-  providerId  String
-  provider    Provider      @relation(fields: [providerId], references: [id])
-  serviceId   String
-  service     Service       @relation(fields: [serviceId], references: [id])
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id])
+  serviceId  String
+  service    Service  @relation(fields: [serviceId], references: [id])
 
-  startTime   DateTime
-  endTime     DateTime
-  status      BookingStatus @default(PENDING)
-  notes       String?
+  startTime    DateTime
+  endTime      DateTime
+  status       BookingStatus @default(PENDING)
+  notes        String?
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
 
   // Coupon applied at booking (snapshotted). amountMinor is the final total.
-  discountMinor Int    @default(0)
+  discountMinor Int     @default(0)
   couponCode    String?
 
   // On-location service: where the provider needs to go, and the computed
@@ -367,14 +468,27 @@ model Booking {
   razorpayOrderId String? // payment-link / order id
   paymentRef      String? // razorpay payment id once paid
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  // Platform commission rate in force when this booking was made (basis
+  // points) — snapshotted so later rate changes never rewrite history.
+  commissionBps   Int       @default(0)
+  // How much of amountPaidMinor went through the payment gateway (money the
+  // platform holds) as opposed to cash the provider collected in person, and
+  // the estimated gateway fee on it.
+  onlinePaidMinor Int       @default(0)
+  gatewayFeeMinor Int       @default(0)
+  // When it reached a final state (completed / cancelled / no-show) — the
+  // date its earnings are counted on.
+  settledAt       DateTime?
 
-  review      Review?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  review Review?
 
   @@index([userId])
   @@index([providerId])
   @@index([status])
+  @@index([settledAt])
   // Prevents the exact same provider slot from being double-booked — but a
   // cancelled booking must not permanently occupy its old slot, so this is a
   // partial index (see the accompanying migration's raw SQL) that only
@@ -390,28 +504,28 @@ model Booking {
 // fresh row for the next occurrence instead of rolling this one forward, so
 // every past occurrence stays visible with its own individual outcome.
 model Reminder {
-  id               String         @id @default(cuid())
-  userId           String
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title            String
+  id                   String         @id @default(cuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                String
   // Free-form category: vehicle | insurance | health | document | home | appointment | other
-  type             String         @default("other")
+  type                 String         @default("other")
   // This occurrence's date — fixed once created, never rolled forward.
-  dueDate          DateTime
+  dueDate              DateTime
   // Optional cap: a repeating series stops spawning new occurrences after this date.
-  endDate          DateTime?
-  repeat           ReminderRepeat @default(NONE)
-  remindDaysBefore Int            @default(1)
-  note             String?
-  providerId       String?
-  status           ReminderStatus @default(PENDING)
+  endDate              DateTime?
+  repeat               ReminderRepeat @default(NONE)
+  remindDaysBefore     Int            @default(1)
+  note                 String?
+  providerId           String?
+  status               ReminderStatus @default(PENDING)
   // When the customer marked this occurrence Done or Missed.
-  respondedAt      DateTime?
+  respondedAt          DateTime?
   // The occurrence this one was spawned from (repeating series), if any —
   // lets the two be found from either side without a hard FK/relation.
   previousOccurrenceId String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@index([userId])
 }
@@ -447,22 +561,22 @@ model Address {
 
 // A customer's review of a completed booking. One review per booking.
 model Review {
-  id         String   @id @default(cuid())
+  id            String    @id @default(cuid())
   // A review is tied to EITHER a completed booking (service) or order (store).
-  bookingId  String?  @unique
-  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  orderId    String?  @unique
-  order      Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  providerId String
-  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  rating     Int // 1..5
-  comment    String?
+  bookingId     String?   @unique
+  booking       Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  orderId       String?   @unique
+  order         Order?    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  providerId    String
+  provider      Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  rating        Int // 1..5
+  comment       String?
   // The business owner's public reply to this review.
   providerReply String?
   repliedAt     DateTime?
-  createdAt  DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@index([providerId])
   @@index([userId])
@@ -471,9 +585,9 @@ model Review {
 // A sellable item in a STORE business's catalog (grains, soap, shampoo…).
 // The equivalent of a Service, but priced per unit with tracked stock.
 model Product {
-  id          String   @id @default(cuid())
-  providerId  String
-  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   // What KIND of product this is (e.g. "Bath & Body"), independent of the
   // selling store's own business category — lets a customer browse "all
@@ -482,49 +596,49 @@ model Product {
   productTypeId String?
   productType   ProductType? @relation(fields: [productTypeId], references: [id], onDelete: SetNull)
 
-  name        String
-  description String?
+  name              String
+  description       String?
   // What the product is measured in: "weight" (base gram), "volume" (base ml)
   // or "count" (base piece). All quantities below are in that base unit.
-  measure     String   @default("count")
+  measure           String   @default("count")
   // Price (paise) for `priceQty` base units. e.g. ₹200 / 100 g →
   // priceMinor = 20000, priceQty = 100, measure = "weight".
-  priceMinor  Int
-  priceQty    Float    @default(1)
-  currency    String   @default("INR")
+  priceMinor        Int
+  priceQty          Float    @default(1)
+  currency          String   @default("INR")
   // A base-unit label kept for display/back-compat ("g", "ml", "piece"…).
-  unit        String   @default("piece")
+  unit              String   @default("piece")
   // Tracked inventory in base units (e.g. 15 kg → 15000). Ignored entirely
   // when unlimitedStock is on (made-to-order items with no fixed quantity,
   // e.g. a restaurant dish) — never checked, decremented, or restored.
-  stockQty    Float    @default(0)
+  stockQty          Float    @default(0)
   // Made-to-order / no fixed quantity — never shows as out of stock or low
   // stock, and stockQty is ignored everywhere (order placement, cart capping,
   // manual stock adjustments).
-  unlimitedStock Boolean @default(false)
+  unlimitedStock    Boolean  @default(false)
   // Minimum order + step increment, in base units (e.g. 100 g → 100).
-  stepQty     Float    @default(1)
+  stepQty           Float    @default(1)
   // Storefront grouping / aisle, e.g. "Grains", "Toiletries" (for section rows).
-  section     String?
-  imageUrl    String?
+  section           String?
+  imageUrl          String?
   // Aggregated per-product rating (from customers who bought it).
-  ratingAvg   Float    @default(0)
-  ratingCount Int      @default(0)
-  isActive    Boolean  @default(true)
+  ratingAvg         Float    @default(0)
+  ratingCount       Int      @default(0)
+  isActive          Boolean  @default(true)
   // Overrides the store's own codEnabled to turn Cash on Delivery OFF for
   // just this product (e.g. a high-value item) — can only restrict, never
   // re-enable COD for a store that has it off entirely.
-  codEnabled  Boolean  @default(true)
+  codEnabled        Boolean  @default(true)
   // Same idea for Partial Pay — can only turn it off for this one product.
-  partialPayEnabled Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  partialPayEnabled Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  orderItems  OrderItem[]
-  cartItems   CartItem[]
-  reviews     ProductReview[]
+  orderItems       OrderItem[]
+  cartItems        CartItem[]
+  reviews          ProductReview[]
   // Coupons scoped to this specific product.
-  coupons     Coupon[]
+  coupons          Coupon[]
   // Manual stock changes outside the normal order flow (offline sales,
   // restocks, damage/loss) — an audit trail alongside the plain `stockQty`.
   stockAdjustments StockAdjustment[]
@@ -590,23 +704,23 @@ model Coupon {
   productId String?
   product   Product?    @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  discountType  DiscountType
+  discountType     DiscountType
   // Percent (1–100) when PERCENT, else a flat amount in minor units (paise).
-  discountValue Int
+  discountValue    Int
   // Minimum order subtotal (minor units) required to use the coupon. Only
   // meaningful when scope = ORDER.
-  minOrderMinor Int  @default(0)
+  minOrderMinor    Int          @default(0)
   // Optional cap on a percentage discount (minor units).
   maxDiscountMinor Int?
 
   expiresAt  DateTime?
   // Optional total-redemption cap across all customers.
   usageLimit Int?
-  usedCount  Int      @default(0)
+  usedCount  Int       @default(0)
 
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([providerId, code])
   @@index([providerId])
@@ -624,11 +738,11 @@ model PlatformCoupon {
   description String?
   appliesTo   PlatformCouponAppliesTo @default(ANY)
 
-  discountType  DiscountType
+  discountType     DiscountType
   // Percent (1–100) when PERCENT, else a flat amount in minor units (paise).
-  discountValue Int
+  discountValue    Int
   // Minimum booking/order subtotal (minor units) required to use the code.
-  minOrderMinor Int  @default(0)
+  minOrderMinor    Int          @default(0)
   // Optional cap on a percentage discount (minor units).
   maxDiscountMinor Int?
 
@@ -640,7 +754,7 @@ model PlatformCoupon {
   expiresAt  DateTime?
   // Optional total-redemption cap across all customers.
   usageLimit Int?
-  usedCount  Int      @default(0)
+  usedCount  Int       @default(0)
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -651,19 +765,19 @@ model PlatformCoupon {
 
 // A customer's review of one product they bought (one per product per order).
 model ProductReview {
-  id        String   @id @default(cuid())
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  rating    Int // 1..5
-  comment   String?
+  id            String    @id @default(cuid())
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderId       String
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  rating        Int // 1..5
+  comment       String?
   // The business owner's public reply to this review.
   providerReply String?
   repliedAt     DateTime?
-  createdAt DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@unique([orderId, productId])
   @@index([productId])
@@ -672,11 +786,11 @@ model ProductReview {
 
 // A line in a customer's persistent shopping cart. quantity is in base units.
 model CartItem {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   userId    String
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   quantity  Float
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -688,59 +802,82 @@ model CartItem {
 // A customer's product order from a STORE business (pickup). No time slot —
 // reuses the same payment fields as Booking so payments work identically.
 model Order {
-  id          String      @id @default(cuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  providerId  String
-  provider    Provider    @relation(fields: [providerId], references: [id])
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id])
 
-  status      OrderStatus @default(PENDING)
-  note        String?
+  status       OrderStatus @default(PENDING)
+  note         String?
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
+  // When the provider marked this READY for pickup — the clock a no-show
+  // mark has to respect (see PlatformConfig.orderPickupWindowHours), so a
+  // customer always gets a fair, configurable window to come collect it.
+  readyAt      DateTime?
 
   // Coupon applied at checkout (snapshotted). amountMinor is the final total.
-  discountMinor Int    @default(0)
+  discountMinor Int     @default(0)
   couponCode    String?
 
   amountMinor     Int
   amountPaidMinor Int           @default(0)
+  // How much of amountPaidMinor was actually refunded — separate from
+  // amountPaidMinor itself, since a mixed cart (made-to-order + static items)
+  // can now be cancelled with only a proportional partial refund. Stays 0
+  // until a refund happens; paymentStatus only becomes REFUNDED once this
+  // equals amountPaidMinor (a full refund).
+  refundedMinor   Int           @default(0)
   currency        String        @default("INR")
   paymentMethod   PaymentMethod @default(ONLINE)
   paymentStatus   PaymentStatus @default(PENDING)
   razorpayOrderId String?
   paymentRef      String?
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  // See Booking: commission snapshot, online-vs-cash split, gateway fee, and
+  // the date earnings are counted on.
+  commissionBps   Int       @default(0)
+  onlinePaidMinor Int       @default(0)
+  gatewayFeeMinor Int       @default(0)
+  settledAt       DateTime?
 
-  items       OrderItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items          OrderItem[]
   // The customer's review of this store order (once completed).
-  review      Review?
+  review         Review?
   // Per-product reviews the customer left for items in this order.
   productReviews ProductReview[]
 
   @@index([userId])
   @@index([providerId])
   @@index([status])
+  @@index([settledAt])
 }
 
 // A line in an order. Name/price/unit are snapshotted so past orders stay
 // accurate even if the product later changes or is removed.
 model OrderItem {
-  id         String   @id @default(cuid())
-  orderId    String
-  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId  String?
-  product    Product? @relation(fields: [productId], references: [id])
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 
-  name       String
-  measure    String   @default("count")
-  priceMinor Int      // price for `priceQty` base units
-  priceQty   Float    @default(1)
-  unit       String   @default("piece")
+  name           String
+  measure        String  @default("count")
+  priceMinor     Int // price for `priceQty` base units
+  priceQty       Float   @default(1)
+  unit           String  @default("piece")
   // Amount ordered, in base units (e.g. 300 g → 300).
-  quantity   Float
+  quantity       Float
+  // Snapshotted from Product.unlimitedStock at order time (made-to-order
+  // items, e.g. a restaurant dish) — drives the cancellation refund split:
+  // these forfeit the payment once the store has started preparing them,
+  // while ordinary tracked-stock items (just put back on the shelf) don't.
+  unlimitedStock Boolean @default(false)
 
   @@index([orderId])
 }

@@ -30,23 +30,36 @@ export const paymentVerifyOrderSchema = z.object({
   }),
 });
 
-// Pay-then-place cart checkout — same cart shape as creating an order
-// directly, since no order exists yet when checkout starts.
+// Pay-then-place cart checkout — no order exists yet when checkout starts.
+// A cart can hold items from several stores and is paid for ONCE: send
+// { paymentMethod, groups: [{ providerId, items, couponCode? }, …] }. The older
+// single-store body ({ providerId, items, paymentMethod }) is still accepted.
+const checkoutGroup = z.object({
+  providerId: z.string().min(1),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        quantity: z.coerce.number().positive(),
+      }),
+    )
+    .min(1, 'Your cart is empty'),
+  note: z.string().max(500).optional(),
+  couponCode: z.string().trim().max(24).optional(),
+});
+const checkoutMethod = z.enum(['ONLINE', 'PARTIAL']);
+
 export const orderCheckoutStartSchema = z.object({
-  body: z.object({
-    providerId: z.string().min(1),
-    items: z
-      .array(
-        z.object({
-          productId: z.string().min(1),
-          quantity: z.coerce.number().positive(),
-        }),
-      )
-      .min(1, 'Your cart is empty'),
-    paymentMethod: z.enum(['ONLINE', 'PARTIAL']),
-    note: z.string().max(500).optional(),
-    couponCode: z.string().trim().max(24).optional(),
-  }),
+  body: z.union([
+    z.object({
+      paymentMethod: checkoutMethod,
+      groups: z
+        .array(checkoutGroup)
+        .min(1, 'Your cart is empty')
+        .max(10, 'Too many stores in one checkout'),
+    }),
+    checkoutGroup.extend({ paymentMethod: checkoutMethod }),
+  ]),
 });
 
 export const orderCheckoutConfirmSchema = z.object({

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { requireNotBlocked } from '@/middlewares/requireNotBlocked';
 import { validate } from '@/middlewares/validate';
 import { paymentController } from './payment.controller';
 import {
@@ -16,15 +17,21 @@ import {
 /** Customer payment actions. Mounted at /customer/payments — USER only. */
 export const paymentRoutes = Router();
 paymentRoutes.use(requireAuth, requireRole(Role.USER));
-paymentRoutes.post('/link', validate(paymentBookingSchema), paymentController.createLink);
-paymentRoutes.post('/simulate', validate(paymentBookingSchema), paymentController.simulate);
+paymentRoutes.post('/link', requireNotBlocked, validate(paymentBookingSchema), paymentController.createLink);
+paymentRoutes.post('/simulate', requireNotBlocked, validate(paymentBookingSchema), paymentController.simulate);
 paymentRoutes.post('/verify', validate(paymentVerifyBookingSchema), paymentController.verify);
 paymentRoutes.post('/sync', validate(paymentBookingSchema), paymentController.sync);
 
 // Store orders (same shape, different resource).
-paymentRoutes.post('/orders/link', validate(paymentOrderSchema), paymentController.createOrderLink);
+paymentRoutes.post(
+  '/orders/link',
+  requireNotBlocked,
+  validate(paymentOrderSchema),
+  paymentController.createOrderLink,
+);
 paymentRoutes.post(
   '/orders/simulate',
+  requireNotBlocked,
   validate(paymentOrderSchema),
   paymentController.simulateOrder,
 );
@@ -38,6 +45,7 @@ paymentRoutes.post('/orders/sync', validate(paymentOrderSchema), paymentControll
 // Pay-then-place cart checkout — the order is created only once payment is confirmed.
 paymentRoutes.post(
   '/orders/checkout',
+  requireNotBlocked,
   validate(orderCheckoutStartSchema),
   paymentController.startCheckout,
 );

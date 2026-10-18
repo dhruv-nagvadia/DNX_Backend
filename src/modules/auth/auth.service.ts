@@ -71,6 +71,7 @@ async function login(input: LoginInput, role: Role): Promise<AuthResult> {
     where: { email_role: { email: input.email, role } },
   });
   if (!user || !user.isActive) throw ApiError.unauthorized('Invalid credentials');
+  if (user.isBlocked) throw ApiError.forbidden('Your account has been blocked. Contact support.');
 
   const ok = await bcrypt.compare(input.password, user.passwordHash);
   if (!ok) throw ApiError.unauthorized('Invalid credentials');

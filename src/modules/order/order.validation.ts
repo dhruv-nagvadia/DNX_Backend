@@ -23,8 +23,8 @@ export const createOrderSchema = z.object({
 // Provider-driven status changes (customers use the cancel route).
 export const updateOrderStatusSchema = z.object({
   body: z.object({
-    status: z.enum(['CONFIRMED', 'READY', 'COMPLETED', 'CANCELLED']),
-    // Optional note shown to the customer when cancelling.
+    status: z.enum(['CONFIRMED', 'READY', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
+    // Optional note shown to the customer when cancelling/no-showing.
     reason: z.string().max(500).optional(),
   }),
 });

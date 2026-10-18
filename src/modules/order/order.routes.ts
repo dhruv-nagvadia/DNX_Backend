@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { requireNotBlocked } from '@/middlewares/requireNotBlocked';
 import { validate } from '@/middlewares/validate';
 import { reviewController } from '@/modules/review/review.controller';
 import { createReviewSchema } from '@/modules/review/review.validation';
@@ -14,7 +15,7 @@ import { createOrderSchema } from './order.validation';
 export const orderRoutes = Router();
 orderRoutes.use(requireAuth, requireRole(Role.USER));
 
-orderRoutes.post('/', validate(createOrderSchema), orderController.create);
+orderRoutes.post('/', requireNotBlocked, validate(createOrderSchema), orderController.create);
 orderRoutes.get('/mine', orderController.listMine);
 orderRoutes.patch('/:id/cancel', orderController.cancel);
 orderRoutes.post('/:id/review', validate(createReviewSchema), reviewController.createForOrder);
