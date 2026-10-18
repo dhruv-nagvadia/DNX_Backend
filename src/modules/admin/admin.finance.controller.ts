@@ -52,6 +52,11 @@ const breakdown = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, await commissionService.adminBreakdown(by ?? 'business', toFilter(req.query)));
 });
 
+const services = asyncHandler(async (req: Request, res: Response) => {
+  const { businessId } = req.query as { businessId?: string };
+  sendSuccess(res, await commissionService.adminServices(businessId));
+});
+
 const balances = asyncHandler(async (_req: Request, res: Response) => {
   sendSuccess(res, await commissionService.adminBalances());
 });
@@ -87,6 +92,7 @@ export const adminFinanceController = {
   overview,
   transactions,
   breakdown,
+  services,
   balances,
   businesses,
   setBusinessCommission,

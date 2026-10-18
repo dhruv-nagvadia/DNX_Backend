@@ -53,6 +53,12 @@ export const transactionsQuerySchema = z.object({
   }),
 });
 
+export const servicesQuerySchema = z.object({
+  query: z.object({
+    businessId: z.string().min(1).optional(),
+  }),
+});
+
 export const breakdownQuerySchema = z.object({
   query: z.object({
     ...filters,

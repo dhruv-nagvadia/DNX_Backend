@@ -18,6 +18,7 @@ import { adminFinanceController } from './admin.finance.controller';
 import {
   breakdownQuerySchema,
   financeRangeSchema,
+  servicesQuerySchema,
   transactionsQuerySchema,
   recordPayoutSchema,
   setBusinessCommissionSchema,
@@ -76,6 +77,11 @@ adminRoutes.get(
   validate(breakdownQuerySchema),
   adminFinanceController.breakdown,
 );
+adminRoutes.get(
+  '/finance/services',
+  validate(servicesQuerySchema),
+  adminFinanceController.services,
+);
 adminRoutes.get('/finance/balances', adminFinanceController.balances);
 adminRoutes.get('/finance/businesses', adminFinanceController.businesses);
 adminRoutes.patch(
@@ -84,7 +90,11 @@ adminRoutes.patch(
   adminFinanceController.setBusinessCommission,
 );
 adminRoutes.get('/finance/payouts', adminFinanceController.listPayouts);
-adminRoutes.post('/finance/payouts', validate(recordPayoutSchema), adminFinanceController.recordPayout);
+adminRoutes.post(
+  '/finance/payouts',
+  validate(recordPayoutSchema),
+  adminFinanceController.recordPayout,
+);
 adminRoutes.delete('/finance/payouts/:payoutId', adminFinanceController.deletePayout);
 
 // Platform-wide coupons — usable across any business, unlike a provider's own.

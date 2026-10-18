@@ -764,6 +764,32 @@ async function adminBreakdown(by: 'business' | 'service', query: TransactionQuer
     .sort((a, b) => b.grossMinor - a.grossMinor || b.upcomingMinor - a.upcomingMinor);
 }
 
+/**
+ * Every service across all businesses (or one business's), for the admin's
+ * "Service" filter — including services nobody has booked yet, which a
+ * breakdown of existing bookings would leave out.
+ */
+async function adminServices(businessId?: string) {
+  const services = await prisma.service.findMany({
+    where: businessId ? { providerId: businessId } : undefined,
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      provider: { select: { id: true, businessName: true } },
+    },
+    orderBy: [{ provider: { businessName: 'asc' } }, { name: 'asc' }],
+    take: 1000,
+  });
+  return services.map((s) => ({
+    id: s.id,
+    name: s.name,
+    isActive: s.isActive,
+    businessId: s.provider.id,
+    businessName: s.provider.businessName,
+  }));
+}
+
 /** Every business with its commission setting, for the admin to adjust per business. */
 async function adminBusinesses(search?: string) {
   const [config, businesses] = await Promise.all([
@@ -905,6 +931,7 @@ export const commissionService = {
   adminBalances,
   adminTransactions,
   adminBreakdown,
+  adminServices,
   adminBusinesses,
   setBusinessCommission,
   recordPayout,
