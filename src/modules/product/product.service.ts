@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { haversineKm } from '@/utils/geo';
+import { visibleToCustomers } from '@/modules/provider/provider.visibility';
 import { platformCouponService, BestProductCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import {
   AdjustStockInput,
@@ -234,7 +235,7 @@ function boundingBox(lat: number, lng: number, radiusKm: number) {
 // Products have no category/location of their own — those filters apply to
 // the store that sells them.
 function buildProviderWhere(query: SearchProductQuery): Prisma.ProviderWhereInput {
-  const where: Prisma.ProviderWhereInput = { isActive: true };
+  const where: Prisma.ProviderWhereInput = { ...visibleToCustomers };
   if (query.categorySlug) where.category = { slug: query.categorySlug };
   if (query.openNow) {
     const now = new Date();

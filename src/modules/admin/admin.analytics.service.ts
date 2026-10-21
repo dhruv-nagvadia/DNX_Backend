@@ -1,5 +1,6 @@
 import { Role } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { dayKey } from '@/modules/commission/commission.service';
 
 const DAILY_WINDOW_DAYS = 14;
 const GROWTH_WINDOW_DAYS = 30;
@@ -92,7 +93,8 @@ async function overview() {
       bookings: totalBookings,
       orders: totalOrders,
     },
-    revenueMinor: (bookingRevenue._sum.amountPaidMinor ?? 0) + (orderRevenue._sum.amountPaidMinor ?? 0),
+    revenueMinor:
+      (bookingRevenue._sum.amountPaidMinor ?? 0) + (orderRevenue._sum.amountPaidMinor ?? 0),
     last30Days: {
       newCustomers: newCustomers30,
       newProviders: newProviders30,
@@ -107,4 +109,94 @@ async function overview() {
   };
 }
 
-export const adminAnalyticsService = { overview };
+export type GrowthGroupBy = 'day' | 'month' | 'year';
+
+const IST_OFFSET = '+05:30';
+// How far back each view goes.
+const GROWTH_DAYS = 14;
+const GROWTH_MONTHS = 12;
+const GROWTH_MIN_YEARS = 3;
+const GROWTH_MAX_YEARS = 10;
+
+/** "2026-10-18" plus `n` days. Done at noon UTC so a day boundary can never slip. */
+function addDays(ymd: string, n: number): string {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** "2026-10" plus `n` months (n may be negative). */
+function addMonths(ym: string, n: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const index = y * 12 + (m - 1) + n;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+}
+
+/**
+ * New customers vs. new providers per day (last 14 days), per month (last 12
+ * months) or per year (at least the last 3, back to the first signup). Months
+ * and days follow the Indian calendar, so a signup at 11pm lands on the day it
+ * happened. Periods with no signups are included as zeros so the chart has no gaps.
+ */
+async function growth(groupBy: GrowthGroupBy) {
+  const today = dayKey(new Date()); // IST "YYYY-MM-DD"
+  const thisMonth = today.slice(0, 7);
+  const thisYear = Number(today.slice(0, 4));
+
+  let labels: string[];
+  if (groupBy === 'day') {
+    labels = Array.from({ length: GROWTH_DAYS }, (_, i) => addDays(today, i - (GROWTH_DAYS - 1)));
+  } else if (groupBy === 'month') {
+    labels = Array.from({ length: GROWTH_MONTHS }, (_, i) =>
+      addMonths(thisMonth, i - (GROWTH_MONTHS - 1)),
+    );
+  } else {
+    const first = await prisma.user.findFirst({
+      where: { role: { in: [Role.USER, Role.PROVIDER] } },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const firstYear = first ? Number(dayKey(first.createdAt).slice(0, 4)) : thisYear;
+    const startYear = Math.max(
+      thisYear - (GROWTH_MAX_YEARS - 1),
+      Math.min(firstYear, thisYear - (GROWTH_MIN_YEARS - 1)),
+    );
+    labels = Array.from({ length: thisYear - startYear + 1 }, (_, i) => String(startYear + i));
+  }
+
+  // The first instant of the first period, in IST.
+  const first = labels[0];
+  const startDay =
+    groupBy === 'day' ? first : groupBy === 'month' ? `${first}-01` : `${first}-01-01`;
+  const since = new Date(`${startDay}T00:00:00${IST_OFFSET}`);
+
+  const users = await prisma.user.findMany({
+    where: { role: { in: [Role.USER, Role.PROVIDER] }, createdAt: { gte: since } },
+    select: { role: true, createdAt: true },
+  });
+
+  const index = new Map(labels.map((l, i) => [l, i]));
+  const customers = labels.map(() => 0);
+  const providers = labels.map(() => 0);
+  for (const u of users) {
+    const day = dayKey(u.createdAt);
+    const key = groupBy === 'day' ? day : groupBy === 'month' ? day.slice(0, 7) : day.slice(0, 4);
+    const i = index.get(key);
+    if (i === undefined) continue;
+    if (u.role === Role.USER) customers[i] += 1;
+    else providers[i] += 1;
+  }
+
+  return {
+    groupBy,
+    labels,
+    customers,
+    providers,
+    totals: {
+      customers: customers.reduce((a, b) => a + b, 0),
+      providers: providers.reduce((a, b) => a + b, 0),
+    },
+  };
+}
+
+export const adminAnalyticsService = { overview, growth };

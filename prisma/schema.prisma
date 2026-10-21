@@ -335,6 +335,20 @@ model Provider {
   // Per-business commission override in basis points; null = use the
   // platform default (PlatformConfig.commissionBps).
   commissionBps     Int?
+
+  // Admin-imposed restrictions on this business (e.g. late payments, complaints).
+  // Blocked = hidden from customers and takes no new bookings/orders, but the
+  // owner can still log in to finish what's already open. Distinct from
+  // isActive and from the owner's own settings. (Blocking the owner's whole
+  // account is User.isBlocked, which also hides every business they own.)
+  isBlocked     Boolean   @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+  // Admin turned Cash on Delivery off for this business. codEnabled is also
+  // switched off (so every customer-facing check already respects it); this
+  // flag only records that it was DNX, so the owner can't switch it back on.
+  codDisabledByAdmin Boolean @default(false)
+  codDisabledReason  String?
   isVerified        Boolean  @default(false)
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())

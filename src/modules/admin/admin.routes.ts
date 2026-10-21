@@ -6,12 +6,15 @@ import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
 import { authController } from '@/modules/auth/auth.controller';
 import { loginSchema } from '@/modules/auth/auth.validation';
 import { adminAnalyticsController } from './admin.analytics.controller';
+import { growthQuerySchema } from './admin.analytics.validation';
 import { adminUsersController } from './admin.users.controller';
 import {
   blockUserSchema,
   createPenaltySchema,
   updatePenaltyStatusSchema,
 } from './admin.users.validation';
+import { adminProvidersController } from './admin.providers.controller';
+import { blockReasonSchema, disableCodSchema } from './admin.providers.validation';
 import { adminConfigController } from './admin.config.controller';
 import { updatePlatformConfigSchema } from './admin.config.validation';
 import { adminFinanceController } from './admin.finance.controller';
@@ -42,6 +45,7 @@ adminRoutes.post('/auth/login', authLimiter, validate(loginSchema), authControll
 adminRoutes.use(requireAuth, requireRole(Role.ADMIN));
 
 adminRoutes.get('/analytics/overview', adminAnalyticsController.overview);
+adminRoutes.get('/analytics/growth', validate(growthQuerySchema), adminAnalyticsController.growth);
 
 // Customers — no-show history, manual penalty charges, account blocking.
 adminRoutes.get('/users', adminUsersController.list);
@@ -60,6 +64,29 @@ adminRoutes.patch(
 );
 adminRoutes.post('/users/:userId/disable-cod', adminUsersController.disableCod);
 adminRoutes.post('/users/:userId/enable-cod', adminUsersController.enableCod);
+
+// Providers — block an account or a single business (e.g. late payments,
+// complaints), or turn Cash on Delivery off for one business.
+adminRoutes.get('/providers', adminProvidersController.list);
+adminRoutes.get('/providers/:userId', adminProvidersController.detail);
+adminRoutes.post(
+  '/providers/:userId/block',
+  validate(blockReasonSchema),
+  adminProvidersController.blockAccount,
+);
+adminRoutes.post('/providers/:userId/unblock', adminProvidersController.unblockAccount);
+adminRoutes.post(
+  '/businesses/:businessId/block',
+  validate(blockReasonSchema),
+  adminProvidersController.blockBusiness,
+);
+adminRoutes.post('/businesses/:businessId/unblock', adminProvidersController.unblockBusiness);
+adminRoutes.post(
+  '/businesses/:businessId/disable-cod',
+  validate(disableCodSchema),
+  adminProvidersController.disableCod,
+);
+adminRoutes.post('/businesses/:businessId/enable-cod', adminProvidersController.enableCod);
 
 // Platform-wide settings (e.g. the order pickup window before a no-show can be marked).
 adminRoutes.get('/config', adminConfigController.get);

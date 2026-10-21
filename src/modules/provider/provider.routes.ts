@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Role } from '@prisma/client';
 import { validate } from '@/middlewares/validate';
 import { requireAuth, requireRole } from '@/middlewares/auth.middleware';
+import { requireNotBlocked } from '@/middlewares/requireNotBlocked';
 import { authLimiter } from '@/middlewares/rateLimit';
 import { imageUpload } from '@/middlewares/upload';
 import { providerController } from './provider.controller';
@@ -75,7 +76,7 @@ providerRoutes.post(
 );
 
 // Everything below requires a logged-in PROVIDER.
-providerRoutes.use(requireAuth, requireRole(Role.PROVIDER));
+providerRoutes.use(requireAuth, requireRole(Role.PROVIDER), requireNotBlocked);
 
 // Single-image upload (product photos) — returns the hosted URL.
 providerRoutes.post('/uploads/image', imageUpload.single('image'), providerController.uploadImage);

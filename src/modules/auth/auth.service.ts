@@ -92,8 +92,15 @@ async function login(input: LoginInput, role: Role): Promise<AuthResult> {
 async function refresh(refreshToken: string): Promise<AuthTokens> {
   try {
     const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as AuthPayload;
+    // An account an admin blocked can't keep a session alive by refreshing it.
+    const account = await prisma.user.findUnique({
+      where: { id: decoded.sub },
+      select: { isBlocked: true },
+    });
+    if (account?.isBlocked) throw ApiError.forbidden('Your account has been blocked. Contact support.');
     return signTokens({ sub: decoded.sub, role: decoded.role });
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
     throw ApiError.unauthorized('Invalid or expired refresh token');
   }
 }

@@ -6,6 +6,7 @@ import { haversineKm } from '@/utils/geo';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
 import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import { commissionService } from '@/modules/commission/commission.service';
+import { visibleToCustomers } from '@/modules/provider/provider.visibility';
 import { settledAtFor } from '@/modules/commission/commission.calc';
 import { CreateBookingInput } from './booking.types';
 
@@ -88,6 +89,18 @@ const NO_SHOW_WARNING_THRESHOLD = 3;
 
 /** Books a service slot for the customer. */
 async function create(userId: string, input: CreateBookingInput) {
+  // A business an admin has blocked (or whose owner is blocked) takes no new bookings.
+  const business = await prisma.provider.findFirst({
+    where: { id: input.providerId, ...visibleToCustomers },
+    select: { codDisabledByAdmin: true },
+  });
+  if (!business) throw ApiError.badRequest('This business isn’t taking bookings right now.');
+  if (input.paymentMethod === 'CASH' && business.codDisabledByAdmin) {
+    throw ApiError.badRequest(
+      'Cash payment has been turned off for this business — pay online or with a partial deposit instead.',
+    );
+  }
+
   const service = await prisma.service.findUnique({ where: { id: input.serviceId } });
   if (!service || service.providerId !== input.providerId || !service.isActive) {
     throw ApiError.badRequest('That service is not available');

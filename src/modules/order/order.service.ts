@@ -9,6 +9,7 @@ import {
 } from '@/modules/platformCoupon/platformCoupon.service';
 import { platformConfigService } from '@/modules/platformConfig/platformConfig.service';
 import { commissionService } from '@/modules/commission/commission.service';
+import { visibleToCustomers } from '@/modules/provider/provider.visibility';
 import { settledAtFor } from '@/modules/commission/commission.calc';
 import { CreateOrderInput } from './order.types';
 
@@ -118,8 +119,10 @@ export interface OrderPlan {
  * payment is confirmed).
  */
 async function buildOrderPlan(input: CreateOrderInput): Promise<OrderPlan> {
-  const provider = await prisma.provider.findUnique({ where: { id: input.providerId } });
-  if (!provider || !provider.isActive) throw ApiError.badRequest('This store is not available');
+  const provider = await prisma.provider.findFirst({
+    where: { id: input.providerId, ...visibleToCustomers },
+  });
+  if (!provider) throw ApiError.badRequest('This store is not available');
   if (provider.type !== 'STORE') {
     throw ApiError.badRequest('This business does not take product orders');
   }

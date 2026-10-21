@@ -508,6 +508,12 @@ async function adminOverview(range: DateRange, groupBy: GroupBy) {
   return { range, groupBy, totals, upcoming, series };
 }
 
+/** One provider account's running balance (what DNX owes them, or they owe DNX). */
+async function ownerBalance(ownerId: string) {
+  const [rows, payoutMap] = await Promise.all([loadRows({ ownerId }), payoutTotals(ownerId)]);
+  return balanceOf(rows, payoutMap.get(ownerId));
+}
+
 /** Per provider account: what they've earned, been paid, and what's still owed either way. */
 async function adminBalances() {
   const [rows, payoutMap, owners] = await Promise.all([
@@ -929,6 +935,7 @@ export const commissionService = {
   providerEarnings,
   adminOverview,
   adminBalances,
+  ownerBalance,
   adminTransactions,
   adminBreakdown,
   adminServices,

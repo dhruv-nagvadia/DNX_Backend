@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { haversineKm } from '@/utils/geo';
+import { visibleToCustomers } from './provider.visibility';
 import {
   CreateProviderInput,
   ListProviderQuery,
@@ -29,7 +30,7 @@ const ownerInclude = {
 
 /** Every non-location filter shared across all tiers of a listing. */
 function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
-  const where: Prisma.ProviderWhereInput = { isActive: true };
+  const where: Prisma.ProviderWhereInput = { ...visibleToCustomers };
 
   if (query.categorySlug) where.category = { slug: query.categorySlug };
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
@@ -247,7 +248,11 @@ async function getById(id: string, viewerPostalCode?: string) {
       },
     },
   });
-  if (!provider || !provider.isActive) throw ApiError.notFound('Provider not found');
+  // Blocked by an admin (the business, or its owner's whole account) reads as gone.
+  const visible = provider
+    ? await prisma.provider.findFirst({ where: { id, ...visibleToCustomers }, select: { id: true } })
+    : null;
+  if (!provider || !visible) throw ApiError.notFound('Provider not found');
 
   const areaCount = viewerPostalCode ? await areaUsageCount(id, viewerPostalCode) : null;
   return { ...provider, areaCount };
@@ -288,6 +293,11 @@ async function update(userId: string, id: string, input: UpdateProviderInput) {
   if (input.categoryId) {
     const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
     if (!category) throw ApiError.badRequest('Invalid categoryId');
+  }
+
+  // DNX turned Cash on Delivery off for this business — only DNX can turn it back on.
+  if (input.codEnabled === true && existing.codDisabledByAdmin) {
+    throw ApiError.forbidden('Cash on Delivery has been turned off for this business by DNX. Contact support.');
   }
 
   const codChanged = input.codEnabled !== undefined && input.codEnabled !== existing.codEnabled;

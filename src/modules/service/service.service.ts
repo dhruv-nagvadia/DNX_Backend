@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { haversineKm } from '@/utils/geo';
+import { visibleToCustomers } from '@/modules/provider/provider.visibility';
 import { CreateServiceInput, SearchServiceQuery, UpdateServiceInput } from './service.types';
 
 /** Ensures the business exists and is owned by the user; returns it. */
@@ -104,7 +105,7 @@ function boundingBox(lat: number, lng: number, radiusKm: number) {
 // A service has no rating/location of its own — those apply to the business
 // offering it.
 function buildProviderWhere(query: SearchServiceQuery): Prisma.ProviderWhereInput {
-  const where: Prisma.ProviderWhereInput = { isActive: true };
+  const where: Prisma.ProviderWhereInput = { ...visibleToCustomers };
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.openNow) {
     const now = new Date();
