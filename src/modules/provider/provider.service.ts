@@ -376,6 +376,8 @@ async function setHours(userId: string, id: string, hours: BusinessHourInput[]) 
         isOpen: h.isOpen,
         openTime: h.openTime,
         closeTime: h.closeTime,
+        breakStart: h.breakStart || null,
+        breakEnd: h.breakEnd || null,
       })),
     }),
   ]);

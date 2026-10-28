@@ -48,6 +48,9 @@ export interface BusinessHourInput {
   isOpen: boolean;
   openTime: string; // "HH:MM"
   closeTime: string;
+  // Optional midday break — both set together or neither.
+  breakStart?: string | null;
+  breakEnd?: string | null;
 }
 
 export interface DateHourInput {

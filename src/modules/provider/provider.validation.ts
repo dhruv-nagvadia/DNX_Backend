@@ -47,18 +47,32 @@ export const listProviderSchema = z.object({
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+const dayHourSchema = z
+  .object({
+    dayOfWeek: z.coerce.number().int().min(0).max(6),
+    isOpen: z.boolean(),
+    openTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+    closeTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
+    // Both set together or neither — a break with only one edge is meaningless.
+    breakStart: z.string().regex(TIME_RE, 'Time must be HH:MM').nullish(),
+    breakEnd: z.string().regex(TIME_RE, 'Time must be HH:MM').nullish(),
+  })
+  .refine((h) => !!h.breakStart === !!h.breakEnd, {
+    message: 'Set both a break start and end time, or neither',
+    path: ['breakEnd'],
+  })
+  .refine((h) => !h.breakStart || !h.breakEnd || h.breakStart < h.breakEnd, {
+    message: 'Break start must be before break end',
+    path: ['breakEnd'],
+  })
+  .refine((h) => !h.breakStart || !h.breakEnd || (h.breakStart >= h.openTime && h.breakEnd <= h.closeTime), {
+    message: 'Break must fall within the open hours',
+    path: ['breakStart'],
+  });
+
 export const setHoursSchema = z.object({
   body: z.object({
-    hours: z
-      .array(
-        z.object({
-          dayOfWeek: z.coerce.number().int().min(0).max(6),
-          isOpen: z.boolean(),
-          openTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
-          closeTime: z.string().regex(TIME_RE, 'Time must be HH:MM'),
-        }),
-      )
-      .max(7),
+    hours: z.array(dayHourSchema).max(7),
   }),
 });
 

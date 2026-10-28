@@ -46,7 +46,7 @@ const orderInclude = {
 
 // What the provider dashboard sees for each order (adds the customer).
 const providerOrderInclude = {
-  items: true,
+  items: { include: { product: { select: { imageUrl: true } } } },
   user: { select: { fullName: true, phone: true } },
   provider: { select: { id: true, businessName: true } },
 } satisfies Prisma.OrderInclude;

@@ -383,6 +383,11 @@ model BusinessHour {
   isOpen     Boolean  @default(true)
   openTime   String   @default("09:00") // "HH:MM" 24-hour
   closeTime  String   @default("18:00")
+  // Optional midday break (e.g. lunch) — both set together or not at all.
+  // Falls within [openTime, closeTime]; no slots are offered to customers
+  // during this window.
+  breakStart String?
+  breakEnd   String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
