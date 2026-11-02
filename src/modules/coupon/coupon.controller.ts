@@ -13,6 +13,13 @@ const list = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, coupons);
 });
 
+// Every coupon across all of the provider's businesses (global page).
+const listAllMine = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const coupons = await couponService.listForOwner(req.user.sub);
+  sendSuccess(res, coupons);
+});
+
 const create = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const coupon = await couponService.create(req.user.sub, req.params.id, req.body);
@@ -75,6 +82,7 @@ const listPublic = asyncHandler(async (req: Request, res: Response) => {
 
 export const couponController = {
   list,
+  listAllMine,
   create,
   update,
   remove,

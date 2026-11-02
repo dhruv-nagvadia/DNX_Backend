@@ -90,6 +90,24 @@ async function listForProvider(providerId: string) {
   });
 }
 
+/** Every review across all businesses owned by this provider (global page). */
+async function listForOwner(userId: string) {
+  return prisma.review.findMany({
+    where: { provider: { userId } },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      providerReply: true,
+      repliedAt: true,
+      createdAt: true,
+      user: { select: { fullName: true } },
+      provider: { select: { id: true, businessName: true } },
+    },
+  });
+}
+
 /** Provider replies to (or edits/removes their reply on) a review of their business. */
 async function reply(userId: string, providerId: string, reviewId: string, text: string | null) {
   await providerService.getMineById(userId, providerId); // ownership check
@@ -207,6 +225,7 @@ export const reviewService = {
   createForOrder,
   createForProduct,
   listForProvider,
+  listForOwner,
   listForProduct,
   reply,
   replyToProduct,

@@ -96,6 +96,10 @@ providerRoutes.patch(
 );
 providerRoutes.post('/orders/:orderId/collect', orderController.collect);
 
+// Coupons and reviews across every owned business (global pages)
+providerRoutes.get('/coupons', couponController.listAllMine);
+providerRoutes.get('/reviews', reviewController.listAllMine);
+
 // Businesses
 providerRoutes.get('/businesses', providerController.listMine);
 providerRoutes.post('/businesses', validate(createProviderSchema), providerController.create);

@@ -165,6 +165,19 @@ async function list(userId: string, providerId: string) {
   });
 }
 
+/** Every coupon across all businesses owned by this provider (global page). */
+async function listForOwner(userId: string) {
+  return prisma.coupon.findMany({
+    where: { provider: { userId } },
+    include: {
+      service: { select: { name: true } },
+      product: { select: { name: true } },
+      provider: { select: { id: true, businessName: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
 /** Validates that a SERVICE/PRODUCT scope points at something real, owned by this business. */
 async function assertScopeTarget(
   providerId: string,
@@ -276,6 +289,7 @@ async function remove(userId: string, providerId: string, couponId: string) {
 }
 
 export const couponService = {
+  listForOwner,
   validateForCustomer,
   listPublicForProvider,
   evaluateCoupon,

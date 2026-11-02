@@ -79,6 +79,14 @@ const replyToProduct = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, review, 'Reply saved');
 });
 
+// Every review across all of the provider's businesses (global page) — not
+// to be confused with `listForOwner` above, which is scoped to one business.
+const listAllMine = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const reviews = await reviewService.listForOwner(req.user.sub);
+  sendSuccess(res, reviews);
+});
+
 export const reviewController = {
   create,
   createForOrder,
@@ -86,6 +94,7 @@ export const reviewController = {
   listPublic,
   listProductReviews,
   listForOwner,
+  listAllMine,
   reply,
   replyToProduct,
 };
