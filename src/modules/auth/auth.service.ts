@@ -134,6 +134,7 @@ async function updateMe(
     postalCode?: string;
     city?: string;
     state?: string;
+    avatarUrl?: string;
   },
 ) {
   try {
@@ -146,6 +147,7 @@ async function updateMe(
         postalCode: input.postalCode,
         city: input.city,
         state: input.state,
+        avatarUrl: input.avatarUrl,
       },
       select: {
         id: true,

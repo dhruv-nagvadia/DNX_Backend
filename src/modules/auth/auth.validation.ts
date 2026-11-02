@@ -36,6 +36,7 @@ export const updateMeSchema = z.object({
     postalCode: z.string().min(1).optional(),
     city: z.string().min(1).optional(),
     state: z.string().min(1).optional(),
+    avatarUrl: z.string().url().optional(),
   }),
 });
 
