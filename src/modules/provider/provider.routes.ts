@@ -182,6 +182,8 @@ providerRoutes.patch(
   validate(adjustStockSchema),
   productController.adjustStock,
 );
+// Stock change history (manual adjustments + mark out of stock), newest first.
+providerRoutes.get('/businesses/:id/stock-adjustments', productController.listStockAdjustments);
 // Quick in/out-of-stock flip for a made-to-order (unlimitedStock) product.
 providerRoutes.patch(
   '/businesses/:id/products/:productId/availability',

@@ -333,9 +333,20 @@ async function update(userId: string, id: string, input: UpdateProviderInput) {
   return provider;
 }
 
+/** Most photos a business can have — matches setImages' validation (max 12). */
+const MAX_BUSINESS_IMAGES = 12;
+
 /** Append newly uploaded image URLs to an owned business's gallery. */
 async function addImages(userId: string, id: string, urls: string[]) {
-  await getMineById(userId, id); // ownership check
+  const business = await getMineById(userId, id); // ownership check
+  const room = MAX_BUSINESS_IMAGES - business.images.length;
+  if (urls.length > room) {
+    throw ApiError.badRequest(
+      room > 0
+        ? `You can add ${room} more photo${room === 1 ? '' : 's'} (up to ${MAX_BUSINESS_IMAGES} in total).`
+        : `This business already has the maximum of ${MAX_BUSINESS_IMAGES} photos. Remove one to add another.`,
+    );
+  }
   return prisma.provider.update({
     where: { id },
     data: { images: { push: urls } },

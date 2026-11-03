@@ -67,6 +67,14 @@ const setStockStatus = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, product, product.stockQty > 0 ? 'Marked in stock' : 'Marked out of stock');
 });
 
+/** Stock change history for one business (newest first). `?limit=` caps rows (default 20, max 200). */
+const listStockAdjustments = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const limit = Number(req.query.limit) || 20;
+  const rows = await productService.listStockAdjustments(req.user.sub, req.params.id, limit);
+  sendSuccess(res, rows);
+});
+
 /** Public product search — matches by name, backing the mobile app's "Product" search type. */
 const searchPublic = asyncHandler(async (req: Request, res: Response) => {
   const result = await productService.searchPublic(req.query as unknown as SearchProductQuery);
@@ -86,6 +94,7 @@ export const productController = {
   remove,
   adjustStock,
   setStockStatus,
+  listStockAdjustments,
   searchPublic,
   listProductTypes,
 };

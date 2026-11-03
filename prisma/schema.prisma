@@ -23,6 +23,8 @@ enum Role {
 enum BookingStatus {
   PENDING
   CONFIRMED
+  // Provider pressed "Start service" — the appointment is under way.
+  IN_PROGRESS
   COMPLETED
   CANCELLED
   NO_SHOW
@@ -461,6 +463,8 @@ model Booking {
   startTime    DateTime
   endTime      DateTime
   status       BookingStatus @default(PENDING)
+  // When the provider started the service (status IN_PROGRESS).
+  startedAt    DateTime?
   notes        String?
   // Reason a provider gives when they cancel — shown to the customer.
   cancelReason String?
@@ -697,6 +701,9 @@ model StockAdjustment {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   // Positive = stock added, negative = stock removed, in the product's base unit.
   delta     Float
+  // The product's stockQty right after this change (null on rows recorded
+  // before this column existed).
+  stockAfter Float?
   reason    String?
   note      String?
   createdAt DateTime @default(now())

@@ -120,7 +120,7 @@ const providerSelect = {
 } satisfies { select: Prisma.ProviderSelect };
 
 /** Open (not yet finished) statuses, as one filter choice. */
-const OPEN_STATUSES = ['PENDING', 'CONFIRMED', 'READY'];
+const OPEN_STATUSES = ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'];
 
 /**
  * A status filter for one model. Only store orders have READY, so a status

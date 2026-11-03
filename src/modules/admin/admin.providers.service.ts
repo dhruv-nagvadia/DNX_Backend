@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
 import { commissionService } from '@/modules/commission/commission.service';
 
-const OPEN_BOOKING = ['PENDING', 'CONFIRMED'] as const;
+const OPEN_BOOKING = ['PENDING', 'CONFIRMED', 'IN_PROGRESS'] as const;
 const OPEN_ORDER = ['PENDING', 'CONFIRMED', 'READY'] as const;
 
 /** Open bookings/orders per business — what a block would leave in limbo. */

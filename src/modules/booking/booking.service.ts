@@ -13,6 +13,7 @@ import { CreateBookingInput } from './booking.types';
 // Customer-facing copy for the statuses a provider can move a booking to.
 const BOOKING_STATUS_COPY: Partial<Record<BookingStatus, string>> = {
   CONFIRMED: 'Your booking has been confirmed',
+  IN_PROGRESS: 'Your service has started',
   COMPLETED: 'Your booking is complete — thank you!',
   CANCELLED: 'Your booking was cancelled',
   NO_SHOW: 'You were marked as a no-show',
@@ -22,6 +23,7 @@ const BOOKING_STATUS_COPY: Partial<Record<BookingStatus, string>> = {
 const bookingSelect = {
   id: true,
   status: true,
+  startedAt: true,
   startTime: true,
   endTime: true,
   amountMinor: true,
@@ -63,7 +65,9 @@ const providerBookingSelect = {
   serviceLat: true,
   serviceLng: true,
   travelFeeMinor: true,
-  service: { select: { name: true } },
+  startedAt: true,
+  createdAt: true,
+  service: { select: { name: true, durationMin: true } },
   user: { select: { fullName: true, phone: true } },
 } satisfies Prisma.BookingSelect;
 
@@ -76,7 +80,9 @@ const ownerBookingSelect = {
 // Allowed provider-driven status transitions (others are terminal).
 const PROVIDER_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING: ['CONFIRMED', 'CANCELLED'],
-  CONFIRMED: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
+  // Start service is optional — a confirmed booking can still be completed directly.
+  CONFIRMED: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
+  IN_PROGRESS: ['COMPLETED'],
   COMPLETED: [],
   CANCELLED: [],
   NO_SHOW: [],
@@ -318,6 +324,7 @@ async function updateStatus(
       status,
       // Stored for cancelling and no-showing (an optional provider note).
       cancelReason: status === 'CANCELLED' || status === 'NO_SHOW' ? reason ?? null : undefined,
+      ...(status === 'IN_PROGRESS' ? { startedAt: new Date() } : {}),
       settledAt: settledAtFor(status),
       ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),
     },

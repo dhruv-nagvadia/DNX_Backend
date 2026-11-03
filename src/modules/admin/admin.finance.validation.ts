@@ -40,7 +40,7 @@ const filters = {
   kind: z.enum(['BOOKING', 'ORDER']).optional(),
   // OPEN = pending / confirmed / ready.
   status: z
-    .enum(['OPEN', 'PENDING', 'CONFIRMED', 'READY', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])
+    .enum(['OPEN', 'PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])
     .optional(),
   search: z.string().trim().max(100).optional(),
 };

@@ -129,7 +129,13 @@ async function adjustStock(
   const [updated] = await prisma.$transaction([
     prisma.product.update({ where: { id: productId }, data: { stockQty: nextStock } }),
     prisma.stockAdjustment.create({
-      data: { productId, delta: input.delta, reason: input.reason, note: input.note },
+      data: {
+        productId,
+        delta: input.delta,
+        stockAfter: nextStock,
+        reason: input.reason,
+        note: input.note,
+      },
     }),
   ]);
   return updated;
@@ -156,7 +162,50 @@ async function setStockStatus(
   if (inStock && !product.unlimitedStock) {
     throw ApiError.badRequest('Use "Add stock" to restock a tracked-inventory product.');
   }
-  return prisma.product.update({ where: { id: productId }, data: { stockQty: inStock ? 1 : 0 } });
+  const update = prisma.product.update({
+    where: { id: productId },
+    data: { stockQty: inStock ? 1 : 0 },
+  });
+  // Zeroing a tracked product's real count is a stock change — keep it in the
+  // history alongside manual adjustments. (Made-to-order flips aren't counts.)
+  if (!product.unlimitedStock && !inStock && product.stockQty > 0) {
+    const [updated] = await prisma.$transaction([
+      update,
+      prisma.stockAdjustment.create({
+        data: {
+          productId,
+          delta: -product.stockQty,
+          stockAfter: 0,
+          reason: 'OTHER',
+          note: 'Marked as out of stock',
+        },
+      }),
+    ]);
+    return updated;
+  }
+  return update;
+}
+
+/**
+ * Stock change history for one business, newest first — manual adjustments
+ * and "mark as out of stock" (order-driven stock changes aren't included).
+ */
+async function listStockAdjustments(userId: string, providerId: string, limit = 20) {
+  await assertOwnedProvider(userId, providerId);
+  return prisma.stockAdjustment.findMany({
+    where: { product: { providerId } },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(Math.max(limit, 1), 200),
+    select: {
+      id: true,
+      delta: true,
+      stockAfter: true,
+      reason: true,
+      note: true,
+      createdAt: true,
+      product: { select: { id: true, name: true, measure: true, unit: true, imageUrl: true } },
+    },
+  });
 }
 
 // Public search views join through the selling store, so the customer sees
@@ -370,6 +419,7 @@ export const productService = {
   remove,
   adjustStock,
   setStockStatus,
+  listStockAdjustments,
   searchPublic,
   listProductTypes,
 };

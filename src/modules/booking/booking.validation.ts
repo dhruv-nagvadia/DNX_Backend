@@ -32,7 +32,7 @@ export const rescheduleBookingSchema = z.object({
 // Provider-driven status changes only (customers use the cancel route).
 export const updateBookingStatusSchema = z.object({
   body: z.object({
-    status: z.enum(['CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
+    status: z.enum(['CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
     // Optional reason, stored when cancelling/no-showing and shown to the customer.
     reason: z.string().max(500).optional(),
   }),
