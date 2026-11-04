@@ -87,6 +87,13 @@ const listAllMine = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, reviews);
 });
 
+/** Every product review across all of the owner's stores (global page). */
+const listAllMyProductReviews = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const reviews = await reviewService.listProductReviewsForOwner(req.user.sub);
+  sendSuccess(res, reviews);
+});
+
 export const reviewController = {
   create,
   createForOrder,
@@ -95,6 +102,7 @@ export const reviewController = {
   listProductReviews,
   listForOwner,
   listAllMine,
+  listAllMyProductReviews,
   reply,
   replyToProduct,
 };

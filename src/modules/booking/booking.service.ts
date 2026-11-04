@@ -66,6 +66,10 @@ const providerBookingSelect = {
   serviceLng: true,
   travelFeeMinor: true,
   startedAt: true,
+  confirmedAt: true,
+  settledAt: true,
+  discountMinor: true,
+  couponCode: true,
   createdAt: true,
   service: { select: { name: true, durationMin: true } },
   user: { select: { fullName: true, phone: true } },
@@ -324,6 +328,7 @@ async function updateStatus(
       status,
       // Stored for cancelling and no-showing (an optional provider note).
       cancelReason: status === 'CANCELLED' || status === 'NO_SHOW' ? reason ?? null : undefined,
+      ...(status === 'CONFIRMED' ? { confirmedAt: new Date() } : {}),
       ...(status === 'IN_PROGRESS' ? { startedAt: new Date() } : {}),
       settledAt: settledAtFor(status),
       ...(refunded ? { paymentStatus: 'REFUNDED' as const } : {}),

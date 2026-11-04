@@ -108,6 +108,32 @@ async function listForOwner(userId: string) {
   });
 }
 
+/** Every PRODUCT review across all of the owner's stores (global Reviews page),
+ * with the product (for its chip) and the store it belongs to. */
+async function listProductReviewsForOwner(userId: string) {
+  return prisma.productReview.findMany({
+    where: { product: { provider: { userId } } },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      rating: true,
+      comment: true,
+      providerReply: true,
+      repliedAt: true,
+      createdAt: true,
+      user: { select: { fullName: true } },
+      product: {
+        select: {
+          id: true,
+          name: true,
+          imageUrl: true,
+          provider: { select: { id: true, businessName: true } },
+        },
+      },
+    },
+  });
+}
+
 /** Provider replies to (or edits/removes their reply on) a review of their business. */
 async function reply(userId: string, providerId: string, reviewId: string, text: string | null) {
   await providerService.getMineById(userId, providerId); // ownership check
@@ -226,6 +252,7 @@ export const reviewService = {
   createForProduct,
   listForProvider,
   listForOwner,
+  listProductReviewsForOwner,
   listForProduct,
   reply,
   replyToProduct,

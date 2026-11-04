@@ -463,6 +463,8 @@ model Booking {
   startTime    DateTime
   endTime      DateTime
   status       BookingStatus @default(PENDING)
+  // When the provider accepted the booking (status CONFIRMED).
+  confirmedAt  DateTime?
   // When the provider started the service (status IN_PROGRESS).
   startedAt    DateTime?
   notes        String?
@@ -841,6 +843,8 @@ model Order {
   // When the provider marked this READY for pickup — the clock a no-show
   // mark has to respect (see PlatformConfig.orderPickupWindowHours), so a
   // customer always gets a fair, configurable window to come collect it.
+  // When the store accepted the order (status CONFIRMED).
+  confirmedAt  DateTime?
   readyAt      DateTime?
 
   // Coupon applied at checkout (snapshotted). amountMinor is the final total.

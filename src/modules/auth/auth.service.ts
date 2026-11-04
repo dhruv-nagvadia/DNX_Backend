@@ -118,6 +118,8 @@ async function me(userId: string) {
       postalCode: true,
       city: true,
       state: true,
+      // "Provider since …" on the profile.
+      createdAt: true,
     },
   });
   if (!user) throw ApiError.notFound('User not found');

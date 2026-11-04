@@ -589,6 +589,7 @@ async function updateStatus(userId: string, orderId: string, status: OrderStatus
       data: {
         status,
         settledAt: settledAtFor(status),
+        ...(status === 'CONFIRMED' ? { confirmedAt: new Date() } : {}),
         ...(status === 'READY' ? { readyAt: new Date() } : {}),
       },
     });

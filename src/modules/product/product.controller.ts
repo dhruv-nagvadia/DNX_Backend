@@ -71,7 +71,8 @@ const setStockStatus = asyncHandler(async (req: Request, res: Response) => {
 const listStockAdjustments = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const limit = Number(req.query.limit) || 20;
-  const rows = await productService.listStockAdjustments(req.user.sub, req.params.id, limit);
+  const productId = typeof req.query.productId === 'string' ? req.query.productId : undefined;
+  const rows = await productService.listStockAdjustments(req.user.sub, req.params.id, limit, productId);
   sendSuccess(res, rows);
 });
 

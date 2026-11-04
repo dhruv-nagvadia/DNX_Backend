@@ -190,10 +190,10 @@ async function setStockStatus(
  * Stock change history for one business, newest first — manual adjustments
  * and "mark as out of stock" (order-driven stock changes aren't included).
  */
-async function listStockAdjustments(userId: string, providerId: string, limit = 20) {
+async function listStockAdjustments(userId: string, providerId: string, limit = 20, productId?: string) {
   await assertOwnedProvider(userId, providerId);
   return prisma.stockAdjustment.findMany({
-    where: { product: { providerId } },
+    where: { product: { providerId }, ...(productId ? { productId } : {}) },
     orderBy: { createdAt: 'desc' },
     take: Math.min(Math.max(limit, 1), 200),
     select: {
