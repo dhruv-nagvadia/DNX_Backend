@@ -2,25 +2,39 @@ import { Category } from '@prisma/client';
 import { Request, Response } from 'express';
 import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
+import { absoluteAsset } from '@/utils/assetUrl';
 import { categoryService } from './category.service';
 
-/** DB stores iconUrl as a relative path (e.g. "/assets/categories/grocery.png")
- * so it stays portable across environments — made absolute here, the same way
- * uploaded image URLs are built in provider.controller.ts. */
-function withAbsoluteIcon<T extends Pick<Category, 'iconUrl'>>(req: Request, category: T): T {
-  if (!category.iconUrl || /^https?:\/\//.test(category.iconUrl)) return category;
-  const origin = `${req.protocol}://${req.get('host')}`;
-  return { ...category, iconUrl: `${origin}${category.iconUrl}` };
+/** Makes every stored asset path on a category (and its sub-categories) absolute. */
+function withAbsoluteAssets<
+  T extends Pick<Category, 'iconUrl' | 'imageUrl' | 'bannerUrl'> & {
+    subcategories?: { imageUrl: string | null }[];
+  },
+>(req: Request, category: T): T {
+  return {
+    ...category,
+    iconUrl: absoluteAsset(req, category.iconUrl) ?? null,
+    imageUrl: absoluteAsset(req, category.imageUrl) ?? null,
+    bannerUrl: absoluteAsset(req, category.bannerUrl) ?? null,
+    ...(category.subcategories
+      ? {
+          subcategories: category.subcategories.map((s) => ({
+            ...s,
+            imageUrl: absoluteAsset(req, s.imageUrl) ?? null,
+          })),
+        }
+      : {}),
+  };
 }
 
 const list = asyncHandler(async (req: Request, res: Response) => {
   const categories = await categoryService.list();
-  sendSuccess(res, categories.map((c) => withAbsoluteIcon(req, c)));
+  sendSuccess(res, categories.map((c) => withAbsoluteAssets(req, c)));
 });
 
 const getBySlug = asyncHandler(async (req: Request, res: Response) => {
   const category = await categoryService.getBySlug(req.params.slug);
-  sendSuccess(res, withAbsoluteIcon(req, category));
+  sendSuccess(res, withAbsoluteAssets(req, category));
 });
 
 export const categoryController = { list, getBySlug };

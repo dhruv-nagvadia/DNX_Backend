@@ -258,6 +258,11 @@ model Category {
   name        String
   description String?
   iconUrl     String?
+  // Card photo ("Shop by business", category tiles) and the wide banner on the
+  // customer Category screen. Relative paths under /assets (e.g.
+  // "/assets/categories/beauty.jpg"); the API makes them absolute.
+  imageUrl    String?
+  bannerUrl   String?
   // Whether this category is for service (appointment) or store (product) businesses.
   type        BusinessType @default(SERVICE)
   isActive    Boolean      @default(true)
@@ -280,6 +285,8 @@ model Subcategory {
   // e.g. "dentist", "general-physician", "plumber"
   slug       String   @unique
   name       String
+  // Card photo on the customer Category screen ("/assets/subcategories/<slug>.jpg").
+  imageUrl   String?
   isActive   Boolean  @default(true)
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())

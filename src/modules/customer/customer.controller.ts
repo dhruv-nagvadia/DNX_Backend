@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
+import { absoluteAsset } from '@/utils/assetUrl';
 import { providerService } from '@/modules/provider/provider.service';
 import { ListProviderQuery } from '@/modules/provider/provider.types';
 import { bookingService } from '@/modules/booking/booking.service';
@@ -18,9 +19,32 @@ function withAbsoluteIcon(req: Request, iconUrl: string | null | undefined): str
  * Customer-facing discovery. Reuses the shared provider data layer but only
  * exposes the public, read-only views (active providers + active services).
  */
+/** Absolute category / sub-category photo URLs on a provider (its fallback image in the app). */
+function withAbsoluteTaxonomy<
+  T extends {
+    category?: { iconUrl?: string | null; imageUrl?: string | null; bannerUrl?: string | null } | null;
+    subcategory?: { imageUrl?: string | null } | null;
+  },
+>(req: Request, p: T): T {
+  return {
+    ...p,
+    category: p.category
+      ? {
+          ...p.category,
+          iconUrl: absoluteAsset(req, p.category.iconUrl) ?? null,
+          imageUrl: absoluteAsset(req, p.category.imageUrl) ?? null,
+          bannerUrl: absoluteAsset(req, p.category.bannerUrl) ?? null,
+        }
+      : p.category,
+    subcategory: p.subcategory
+      ? { ...p.subcategory, imageUrl: absoluteAsset(req, p.subcategory.imageUrl) ?? null }
+      : p.subcategory,
+  };
+}
+
 const listProviders = asyncHandler(async (req: Request, res: Response) => {
   const result = await providerService.list(req.query as unknown as ListProviderQuery);
-  sendSuccess(res, result);
+  sendSuccess(res, { ...result, items: result.items.map((p) => withAbsoluteTaxonomy(req, p)) });
 });
 
 const getProvider = asyncHandler(async (req: Request, res: Response) => {
@@ -42,7 +66,7 @@ const getProvider = asyncHandler(async (req: Request, res: Response) => {
     codEnabled: p.codEnabled && provider.codEnabled,
     partialPayEnabled: p.partialPayEnabled && provider.partialPayEnabled,
   }));
-  sendSuccess(res, { ...provider, products });
+  sendSuccess(res, withAbsoluteTaxonomy(req, { ...provider, products }));
 });
 
 /** Upcoming booked intervals, so the app can hide unavailable slots. */

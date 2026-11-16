@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { existsSync } from 'fs';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -210,6 +212,11 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+/** "/assets/<dir>/<slug>.jpg" when that photo ships in public/, else null. */
+const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
+const assetIfPresent = (dir: string, slug: string) =>
+  existsSync(path.join(PUBLIC_DIR, dir, `${slug}.jpg`)) ? `/assets/${dir}/${slug}.jpg` : null;
+
 async function main() {
   // Clean reset of the taxonomy + businesses (users are kept).
   await prisma.booking.deleteMany();
@@ -220,16 +227,27 @@ async function main() {
   let catOrder = 1;
   for (const cat of taxonomy) {
     const category = await prisma.category.create({
-      data: { slug: cat.slug, name: cat.name, sortOrder: catOrder++, type: cat.type ?? 'SERVICE' },
+      data: {
+        slug: cat.slug,
+        name: cat.name,
+        sortOrder: catOrder++,
+        type: cat.type ?? 'SERVICE',
+        imageUrl: assetIfPresent('categories', cat.slug),
+        bannerUrl: assetIfPresent('categories/banners', cat.slug),
+      },
     });
 
     await prisma.subcategory.createMany({
-      data: cat.sub.map((name, i) => ({
-        categoryId: category.id,
-        slug: `${cat.slug}-${slugify(name)}`,
-        name,
-        sortOrder: i + 1,
-      })),
+      data: cat.sub.map((name, i) => {
+        const slug = `${cat.slug}-${slugify(name)}`;
+        return {
+          categoryId: category.id,
+          slug,
+          name,
+          imageUrl: assetIfPresent('subcategories', slug),
+          sortOrder: i + 1,
+        };
+      }),
     });
   }
 
