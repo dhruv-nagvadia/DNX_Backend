@@ -26,6 +26,8 @@ export const searchServiceSchema = z.object({
     sort: z.enum(['rating', 'reviews', 'newest', 'nearest']).optional(),
     lat: z.coerce.number().min(-90).max(90).optional(),
     lng: z.coerce.number().min(-180).max(180).optional(),
+    // "true" → at most one service per business (its most-booked one).
+    onePerProvider: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),

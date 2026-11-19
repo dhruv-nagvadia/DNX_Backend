@@ -1,5 +1,7 @@
-import { NotificationType } from '@prisma/client';
+import { Notification, NotificationType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { isPushEnabled, sendPush } from '@/lib/push';
+import { deviceService } from '@/modules/device/device.service';
 import { logger } from '@/utils/logger';
 
 const MAX_LIST = 50;
@@ -9,7 +11,7 @@ export interface NotifyInput {
   type: NotificationType;
   title: string;
   body: string;
-  entityType?: 'ORDER' | 'BOOKING';
+  entityType?: 'ORDER' | 'BOOKING' | 'REMINDER';
   entityId?: string;
 }
 
@@ -19,7 +21,7 @@ export interface NotifyInput {
  */
 async function notify(input: NotifyInput): Promise<void> {
   try {
-    await prisma.notification.create({
+    const notification = await prisma.notification.create({
       data: {
         userId: input.userId,
         type: input.type,
@@ -29,8 +31,39 @@ async function notify(input: NotifyInput): Promise<void> {
         entityId: input.entityId,
       },
     });
+    // Detached: the push round-trip to FCM must not delay the request that
+    // triggered it.
+    void push(notification);
   } catch (err) {
     logger.error('Failed to create notification', err);
+  }
+}
+
+/**
+ * Mirrors an in-app notification to every device the recipient is signed in
+ * on. A no-op when push isn't configured or they have no devices; dead tokens
+ * reported by FCM are pruned. Never throws.
+ */
+async function push(n: Notification): Promise<void> {
+  try {
+    if (!isPushEnabled()) return;
+    const tokens = await deviceService.tokensFor(n.userId);
+    if (tokens.length === 0) return;
+
+    // Data values must be strings; the deep-link ids mirror entityType/entityId.
+    const data: Record<string, string> = { notificationId: n.id, type: n.type };
+    if (n.entityType && n.entityId) {
+      data.entityType = n.entityType;
+      data.entityId = n.entityId;
+      if (n.entityType === 'BOOKING') data.bookingId = n.entityId;
+      else if (n.entityType === 'ORDER') data.orderId = n.entityId;
+      else if (n.entityType === 'REMINDER') data.reminderId = n.entityId;
+    }
+    const badge = await unreadCount(n.userId);
+    const dead = await sendPush(tokens, { title: n.title, body: n.body, data, badge });
+    await deviceService.removeTokens(dead);
+  } catch (err) {
+    logger.error('Failed to send push notification', err);
   }
 }
 

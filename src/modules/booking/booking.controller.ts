@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
+import { absoluteAsset } from '@/utils/assetUrl';
 import { bookingService } from './booking.service';
 
 const create = asyncHandler(async (req: Request, res: Response) => {
@@ -13,7 +14,14 @@ const create = asyncHandler(async (req: Request, res: Response) => {
 const listMine = asyncHandler(async (req: Request, res: Response) => {
   if (!req.user) throw ApiError.unauthorized();
   const bookings = await bookingService.listMine(req.user.sub);
-  sendSuccess(res, bookings);
+  // Service photos are stored relative — make them absolute for the app.
+  sendSuccess(
+    res,
+    bookings.map((b) => ({
+      ...b,
+      service: { ...b.service, imageUrl: absoluteAsset(req, b.service.imageUrl) ?? null },
+    })),
+  );
 });
 
 const cancel = asyncHandler(async (req: Request, res: Response) => {

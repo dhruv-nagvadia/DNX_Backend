@@ -4,6 +4,8 @@ import { ApiError } from '@/utils/ApiError';
 import { refundPayment } from '@/lib/razorpay';
 import { haversineKm } from '@/utils/geo';
 import { notificationService, formatINR } from '@/modules/notification/notification.service';
+import { emailBookingEvent } from '@/modules/notification/bookingEmails';
+import { formatDateTimeIST } from '@/modules/notification/emailTemplates';
 import { platformCouponService, ResolvedCheckoutCoupon } from '@/modules/platformCoupon/platformCoupon.service';
 import { commissionService } from '@/modules/commission/commission.service';
 import { visibleToCustomers } from '@/modules/provider/provider.visibility';
@@ -36,13 +38,20 @@ const bookingSelect = {
   cancelReason: true,
   serviceAddressLine: true,
   travelFeeMinor: true,
-  service: { select: { id: true, name: true, durationMin: true, travelRequired: true } },
+  service: {
+    select: { id: true, name: true, durationMin: true, travelRequired: true, imageUrl: true },
+  },
   provider: {
     select: {
       id: true,
       businessName: true,
       images: true,
       phone: true,
+      // The customer's own booking — address/coords back Home's "Directions" button.
+      addressLine: true,
+      city: true,
+      latitude: true,
+      longitude: true,
       category: { select: { slug: true, name: true } },
     },
   },
@@ -249,6 +258,7 @@ async function create(userId: string, input: CreateBookingInput) {
       entityId: booking.id,
     });
   }
+  emailBookingEvent(booking.id, { kind: 'created' });
 
   return booking;
 }
@@ -369,8 +379,84 @@ async function updateStatus(
       entityId: bookingId,
     });
   }
+  if (status === 'CONFIRMED') emailBookingEvent(bookingId, { kind: 'confirmed' });
+  else if (status === 'CANCELLED') {
+    emailBookingEvent(bookingId, {
+      kind: 'cancelledByProvider',
+      note: refundNote(refund, refunded),
+    });
+  }
 
   return updated;
+}
+
+/** Customer-facing refund line for a cancellation email (none when nothing was paid). */
+function refundNote(refund: number, refunded: boolean): string | undefined {
+  if (refund <= 0) return undefined;
+  return refunded
+    ? `${formatINR(refund)} has been refunded to your original payment method.`
+    : `Your ${formatINR(refund)} refund is still being processed — contact support if it doesn't appear soon.`;
+}
+
+const EXPIRED_REASON = 'Not confirmed by the business in time';
+
+/**
+ * Scheduler: cancels a booking the business never confirmed before its start
+ * time. Money is handled exactly like a provider cancellation (updateStatus →
+ * CANCELLED): everything paid is refunded and coupon redemptions are left as
+ * they are. The status flip is claimed atomically first (only while still
+ * PENDING and past its start), so a provider confirming at the same moment
+ * wins and nothing is refunded. Returns whether this call expired it.
+ */
+async function expireUnconfirmed(bookingId: string): Promise<boolean> {
+  const claimed = await prisma.booking.updateMany({
+    where: { id: bookingId, status: 'PENDING', startTime: { lte: new Date() } },
+    data: {
+      status: 'CANCELLED',
+      cancelReason: EXPIRED_REASON,
+      settledAt: settledAtFor('CANCELLED'),
+    },
+  });
+  if (claimed.count === 0) return false;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { service: { select: { name: true } }, provider: { select: { userId: true } } },
+  });
+  if (!booking) return true;
+
+  const refund = booking.paymentStatus !== 'REFUNDED' ? Math.max(0, booking.amountPaidMinor) : 0;
+  const refunded = refund > 0 ? await refundPayment(booking.paymentRef, refund) : false;
+  if (refunded) {
+    await prisma.booking.update({ where: { id: bookingId }, data: { paymentStatus: 'REFUNDED' } });
+  }
+
+  let body = `Your booking for ${booking.service.name} was cancelled because the business didn't confirm it in time`;
+  if (refund > 0) {
+    body += refunded
+      ? ` — ${formatINR(refund)} has been refunded`
+      : ` — your ${formatINR(refund)} refund is still being processed`;
+  }
+  await notificationService.notify({
+    userId: booking.userId,
+    type: 'BOOKING_STATUS',
+    title: 'Booking cancelled',
+    body,
+    entityType: 'BOOKING',
+    entityId: bookingId,
+  });
+  await notificationService.notify({
+    userId: booking.provider.userId,
+    type: 'BOOKING_CANCELLED',
+    title: 'Booking expired',
+    body:
+      `A booking for ${booking.service.name} was cancelled automatically — it wasn't confirmed before its start time` +
+      (refund > 0 ? ` (${formatINR(refund)} ${refunded ? 'refunded' : 'refund pending'})` : ''),
+    entityType: 'BOOKING',
+    entityId: bookingId,
+  });
+  emailBookingEvent(bookingId, { kind: 'expired', note: refundNote(refund, refunded) });
+  return true;
 }
 
 /** Customer cancels their own upcoming booking. */
@@ -420,6 +506,14 @@ async function cancelByCustomer(userId: string, bookingId: string) {
       entityId: bookingId,
     });
   }
+  emailBookingEvent(bookingId, {
+    kind: 'cancelledByCustomer',
+    note: refunded
+      ? `${formatINR(refund)} was refunded to the customer.`
+      : isPastStart && booking.amountPaidMinor > 0
+        ? 'Cancelled after the start time, so the payment was not refunded.'
+        : undefined,
+  });
 
   // Confirm the refund to the customer, explain why there isn't one when
   // cancelling late, or flag a real Razorpay failure for manual follow-up.
@@ -465,10 +559,18 @@ async function rescheduleByCustomer(userId: string, bookingId: string, startTime
 
   const end = new Date(start.getTime() + booking.service.durationMin * 60_000);
 
+  let updated;
   try {
-    return await prisma.booking.update({
+    updated = await prisma.booking.update({
       where: { id: bookingId },
-      data: { startTime: start, endTime: end, status: 'PENDING' },
+      data: {
+        startTime: start,
+        endTime: end,
+        status: 'PENDING',
+        // New time → the appointment reminders go out again for it.
+        reminder24hSentAt: null,
+        reminder1hSentAt: null,
+      },
       select: bookingSelect,
     });
   } catch (err) {
@@ -477,6 +579,25 @@ async function rescheduleByCustomer(userId: string, bookingId: string, startTime
     }
     throw err;
   }
+
+  // The business has to re-confirm the new time — let the owner know.
+  const owner = await prisma.provider.findUnique({
+    where: { id: booking.providerId },
+    select: { userId: true },
+  });
+  if (owner) {
+    await notificationService.notify({
+      userId: owner.userId,
+      type: 'BOOKING_PLACED',
+      title: 'Booking rescheduled',
+      body: `A customer moved their ${booking.service.name} booking to ${formatDateTimeIST(start)} — please confirm the new time`,
+      entityType: 'BOOKING',
+      entityId: bookingId,
+    });
+  }
+  emailBookingEvent(bookingId, { kind: 'rescheduledByCustomer', previousStart: booking.startTime });
+
+  return updated;
 }
 
 export const bookingService = {
@@ -488,4 +609,5 @@ export const bookingService = {
   updateStatus,
   cancelByCustomer,
   rescheduleByCustomer,
+  expireUnconfirmed,
 };

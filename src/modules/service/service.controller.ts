@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { absoluteAsset } from '@/utils/assetUrl';
 import { asyncHandler } from '@/utils/asyncHandler';
 import { sendSuccess } from '@/utils/ApiResponse';
 import { ApiError } from '@/utils/ApiError';
@@ -32,7 +33,24 @@ const remove = asyncHandler(async (req: Request, res: Response) => {
 /** Public service search — matches by service name, backing the mobile app's "Service" search type. */
 const searchPublic = asyncHandler(async (req: Request, res: Response) => {
   const result = await serviceService.searchPublic(req.query as unknown as SearchServiceQuery);
-  sendSuccess(res, result);
+  // Category / sub-category photos are stored relative — make them absolute for the client.
+  sendSuccess(res, {
+    ...result,
+    items: result.items.map((s) => ({
+      ...s,
+      imageUrl: absoluteAsset(req, s.imageUrl) ?? null,
+      category: { ...s.category, imageUrl: absoluteAsset(req, s.category.imageUrl) ?? null },
+      provider: {
+        ...s.provider,
+        subcategory: s.provider.subcategory
+          ? {
+              ...s.provider.subcategory,
+              imageUrl: absoluteAsset(req, s.provider.subcategory.imageUrl) ?? null,
+            }
+          : null,
+      },
+    })),
+  });
 });
 
 export const serviceController = { create, update, remove, searchPublic };

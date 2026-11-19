@@ -24,10 +24,20 @@ function withAbsoluteTaxonomy<
   T extends {
     category?: { iconUrl?: string | null; imageUrl?: string | null; bannerUrl?: string | null } | null;
     subcategory?: { imageUrl?: string | null } | null;
+    services?: { imageUrl?: string | null }[];
   },
 >(req: Request, p: T): T {
   return {
     ...p,
+    // Per-service photos (stored relative) — absolute like the rest.
+    ...(p.services
+      ? {
+          services: p.services.map((s) => ({
+            ...s,
+            imageUrl: absoluteAsset(req, s.imageUrl) ?? null,
+          })),
+        }
+      : {}),
     category: p.category
       ? {
           ...p.category,

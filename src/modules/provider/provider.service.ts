@@ -1,7 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
-import { haversineKm } from '@/utils/geo';
+import {
+  compareBySort,
+  distanceFrom,
+  pickRadiusTier,
+  resolveOrigin,
+  withinMaxBox,
+} from '@/modules/geo/nearby';
 import { visibleToCustomers } from './provider.visibility';
 import {
   CreateProviderInput,
@@ -68,73 +74,31 @@ function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
 
 export type LocationScope = 'postalCode' | 'city' | 'state' | null;
 
-// km per degree of latitude is ~constant; longitude shrinks with cos(latitude).
-const KM_PER_DEGREE_LAT = 111;
-// A generous "nearby" radius — enough to cover a typical city/metro area.
-// Only providers within this box get the (unavoidably per-row) haversine
-// calc; the box itself is a cheap, indexed range check the database does.
-const NEARBY_RADIUS_KM = 50;
-
-function boundingBox(lat: number, lng: number, radiusKm: number) {
-  const latDelta = radiusKm / KM_PER_DEGREE_LAT;
-  const lngDelta = radiusKm / (KM_PER_DEGREE_LAT * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
-  return {
-    minLat: lat - latDelta,
-    maxLat: lat + latDelta,
-    minLng: lng - lngDelta,
-    maxLng: lng + lngDelta,
-  };
-}
-
 /** Public listing with category/city/postal/geo/text filters + pagination. */
 async function list(query: ListProviderQuery) {
   const baseWhere = buildBaseWhere(query);
 
-  // "Nearest" needs the customer's coordinates — distance isn't a stored
-  // column, so the precise haversine calc still happens in-app, but only for
-  // providers inside a bounding box the database filters cheaply (indexed),
-  // instead of fetching and computing distance for every provider.
-  if (query.sort === 'nearest' && query.lat != null && query.lng != null) {
-    const lat = query.lat;
-    const lng = query.lng;
-    const where = { ...baseWhere };
-    if (query.city) where.city = { equals: query.city, mode: 'insensitive' };
-    if (query.postalCode) where.postalCode = { startsWith: query.postalCode };
-
-    const box = boundingBox(lat, lng, NEARBY_RADIUS_KM);
-    const nearbyWhere: Prisma.ProviderWhereInput = {
-      ...where,
-      latitude: { gte: box.minLat, lte: box.maxLat },
-      longitude: { gte: box.minLng, lte: box.maxLng },
-    };
-
-    let candidates = await prisma.provider.findMany({ where: nearbyWhere, include: publicInclude });
-    // Nothing within the box (a sparse area with no nearby listings) — fall
-    // back to a full scan so the customer still sees their least-far
-    // options, instead of an empty result. Rare in practice, so the
-    // expensive path only runs when the cheap one truly comes up empty.
-    if (candidates.length === 0) {
-      candidates = await prisma.provider.findMany({ where, include: publicInclude });
-    }
-
+  // Distance rings: when we can place the customer (GPS coordinates, or the
+  // centre of their PIN code / city), show businesses within 10 km, widening
+  // to 20 → 50 → 100 km only while a ring comes up empty. Postal/city/state
+  // text matching below is only the fallback for when we can't place them.
+  const origin = await resolveOrigin(query);
+  if (origin) {
+    const candidates = await prisma.provider.findMany({
+      where: { ...baseWhere, ...withinMaxBox(origin) },
+      include: publicInclude,
+    });
     const withDistance = candidates.map((p) => ({
       ...p,
-      distanceKm:
-        p.latitude != null && p.longitude != null
-          ? Math.round(haversineKm(lat, lng, p.latitude, p.longitude) * 10) / 10
-          : null,
+      distanceKm: distanceFrom(origin, p.latitude, p.longitude),
     }));
-    // Businesses with no set location sort after those with a known distance.
-    withDistance.sort((a, b) => {
-      if (a.distanceKm == null && b.distanceKm == null) return b.ratingAvg - a.ratingAvg;
-      if (a.distanceKm == null) return 1;
-      if (b.distanceKm == null) return -1;
-      return a.distanceKm - b.distanceKm;
-    });
-    const total = withDistance.length;
+    const { items: inRing, radiusKm } = pickRadiusTier(withDistance);
+    inRing.sort(compareBySort(query.sort));
+
+    const total = inRing.length;
     const skip = (query.page - 1) * query.limit;
     return {
-      items: withDistance.slice(skip, skip + query.limit),
+      items: inRing.slice(skip, skip + query.limit),
       pagination: {
         page: query.page,
         limit: query.limit,
@@ -142,6 +106,7 @@ async function list(query: ListProviderQuery) {
         totalPages: Math.ceil(total / query.limit),
       },
       locationScope: null as LocationScope,
+      radiusKm,
     };
   }
 
@@ -207,6 +172,7 @@ async function list(query: ListProviderQuery) {
       totalPages: Math.ceil(total / query.limit),
     },
     locationScope,
+    radiusKm: null as number | null,
   };
 }
 
@@ -264,11 +230,34 @@ async function getById(id: string, viewerPostalCode?: string) {
  * Provider accounts are separate from customer accounts, so the caller is
  * already a PROVIDER (enforced by the route) — no role promotion needed.
  */
+/**
+ * A business has to have coordinates to show up in "near me" (distance-ring)
+ * results. When the owner didn't pin it on a map, use the centre of its PIN
+ * code (or city/state) — approximate, but enough to place it in the right ring.
+ */
+async function guessCoords(input: {
+  latitude?: number | null;
+  longitude?: number | null;
+  postalCode?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): Promise<{ latitude: number; longitude: number } | null> {
+  if (input.latitude != null && input.longitude != null) return null;
+  if (!input.postalCode && !input.city && !input.state) return null;
+  const origin = await resolveOrigin({
+    postalCode: input.postalCode ?? undefined,
+    city: input.city ?? undefined,
+    state: input.state ?? undefined,
+  });
+  return origin ? { latitude: origin.lat, longitude: origin.lng } : null;
+}
+
 async function create(userId: string, input: CreateProviderInput) {
   const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
   if (!category) throw ApiError.badRequest('Invalid categoryId');
 
-  return prisma.provider.create({ data: { ...input, userId }, include: ownerInclude });
+  const coords = await guessCoords(input);
+  return prisma.provider.create({ data: { ...input, ...(coords ?? {}), userId }, include: ownerInclude });
 }
 
 /** All businesses owned by the logged-in provider (for the businesses list). */
@@ -305,7 +294,26 @@ async function update(userId: string, id: string, input: UpdateProviderInput) {
   const partialPayChanged =
     input.partialPayEnabled !== undefined && input.partialPayEnabled !== existing.partialPayEnabled;
 
-  const provider = await prisma.provider.update({ where: { id }, data: input, include: ownerInclude });
+  // Address changed without a map pin (or the business never had one) —
+  // re-place it at its PIN-code centre so distance search still finds it.
+  const addressChanged =
+    (input.postalCode !== undefined && input.postalCode !== existing.postalCode) ||
+    (input.city !== undefined && input.city !== existing.city);
+  const pinned = input.latitude != null && input.longitude != null;
+  const coords =
+    !pinned && (addressChanged || existing.latitude == null || existing.longitude == null)
+      ? await guessCoords({
+          postalCode: input.postalCode ?? existing.postalCode,
+          city: input.city ?? existing.city,
+          state: input.state ?? existing.state,
+        })
+      : null;
+
+  const provider = await prisma.provider.update({
+    where: { id },
+    data: { ...input, ...(coords ?? {}) },
+    include: ownerInclude,
+  });
 
   // Flipping a business-wide switch resets every product/service under it to
   // match, so that's the "last state" a provider then individually overrides

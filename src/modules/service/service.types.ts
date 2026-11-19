@@ -42,6 +42,8 @@ export interface SearchServiceQuery {
   sort?: ServiceSort;
   lat?: number;
   lng?: number;
+  // At most one service per business — its most-booked one (Home "Popular services").
+  onePerProvider?: boolean;
   page: number;
   limit: number;
 }

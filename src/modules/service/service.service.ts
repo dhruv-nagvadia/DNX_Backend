@@ -1,7 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/utils/ApiError';
-import { haversineKm } from '@/utils/geo';
+import {
+  compareBySort,
+  distanceFrom,
+  pickRadiusTier,
+  resolveOrigin,
+  withinMaxBox,
+} from '@/modules/geo/nearby';
 import { visibleToCustomers } from '@/modules/provider/provider.visibility';
 import { CreateServiceInput, SearchServiceQuery, UpdateServiceInput } from './service.types';
 
@@ -73,11 +79,15 @@ async function remove(userId: string, providerId: string, serviceId: string) {
 // Public search views join through the offering business, and carry the
 // service's own category for display (e.g. an icon).
 const publicInclude = {
-  category: { select: { slug: true, name: true } },
+  category: { select: { slug: true, name: true, imageUrl: true } },
   provider: {
     select: {
       id: true,
       businessName: true,
+      // Photo fallbacks for service cards (Home "Popular services"): business
+      // photo → sub-category photo → category photo.
+      images: true,
+      subcategory: { select: { slug: true, name: true, imageUrl: true } },
       city: true,
       isVerified: true,
       ratingAvg: true,
@@ -88,22 +98,6 @@ const publicInclude = {
   },
 } satisfies Prisma.ServiceInclude;
 
-const KM_PER_DEGREE_LAT = 111;
-const NEARBY_RADIUS_KM = 50;
-
-function boundingBox(lat: number, lng: number, radiusKm: number) {
-  const latDelta = radiusKm / KM_PER_DEGREE_LAT;
-  const lngDelta = radiusKm / (KM_PER_DEGREE_LAT * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
-  return {
-    minLat: lat - latDelta,
-    maxLat: lat + latDelta,
-    minLng: lng - lngDelta,
-    maxLng: lng + lngDelta,
-  };
-}
-
-// A service has no rating/location of its own — those apply to the business
-// offering it.
 function buildProviderWhere(query: SearchServiceQuery): Prisma.ProviderWhereInput {
   const where: Prisma.ProviderWhereInput = { ...visibleToCustomers };
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
@@ -124,58 +118,87 @@ function buildBaseWhere(query: SearchServiceQuery): Prisma.ServiceWhereInput {
   return where;
 }
 
+// Bookings that count towards a service's popularity (cancelled ones don't).
+const popularityCount = {
+  _count: { select: { bookings: { where: { status: { not: 'CANCELLED' as const } } } } },
+} satisfies Prisma.ServiceInclude;
+
+/**
+ * One service per business: each business's most-booked service (oldest
+ * first on a tie, i.e. its main/original service). Keeps the input's order
+ * of businesses, so call it on an already-ranked list. Drops the booking
+ * count from the response.
+ */
+function onePerBusiness<
+  T extends { providerId: string; createdAt: Date; _count: { bookings: number } },
+>(ranked: T[]): Omit<T, '_count'>[] {
+  const best = new Map<string, T>();
+  for (const s of ranked) {
+    const cur = best.get(s.providerId);
+    if (
+      !cur ||
+      s._count.bookings > cur._count.bookings ||
+      (s._count.bookings === cur._count.bookings && s.createdAt < cur.createdAt)
+    ) {
+      best.set(s.providerId, s);
+    }
+  }
+  const seen = new Set<string>();
+  const out: Omit<T, '_count'>[] = [];
+  for (const s of ranked) {
+    if (seen.has(s.providerId)) continue;
+    seen.add(s.providerId);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _count, ...rest } = best.get(s.providerId) as T;
+    out.push(rest);
+  }
+  return out;
+}
+
 /** Public service search — matches by name (e.g. "haircut"); rating/open-now/location filter on the offering business. */
 async function searchPublic(query: SearchServiceQuery) {
   const baseWhere = buildBaseWhere(query);
 
-  if (query.sort === 'nearest' && query.lat != null && query.lng != null) {
-    const lat = query.lat;
-    const lng = query.lng;
-    const providerWhere = buildProviderWhere(query);
-    if (query.city) providerWhere.city = { equals: query.city, mode: 'insensitive' };
-    if (query.postalCode) providerWhere.postalCode = { startsWith: query.postalCode };
-
-    const box = boundingBox(lat, lng, NEARBY_RADIUS_KM);
-    const nearbyWhere: Prisma.ServiceWhereInput = {
-      ...baseWhere,
-      provider: {
-        ...providerWhere,
-        latitude: { gte: box.minLat, lte: box.maxLat },
-        longitude: { gte: box.minLng, lte: box.maxLng },
-      },
-    };
-
-    let candidates = await prisma.service.findMany({ where: nearbyWhere, include: publicInclude });
-    if (candidates.length === 0) {
-      candidates = await prisma.service.findMany({
-        where: { ...baseWhere, provider: providerWhere },
-        include: publicInclude,
-      });
-    }
-
+  // Same distance rings as the business list (10 → 20 → 50 → 100 km) around
+  // the customer's coordinates or their PIN-code centre; text matching on
+  // postal/city/state below is only the fallback when we can't place them.
+  const origin = await resolveOrigin(query);
+  if (origin) {
+    const candidates = await prisma.service.findMany({
+      where: { ...baseWhere, provider: { ...buildProviderWhere(query), ...withinMaxBox(origin) } },
+      include: { ...publicInclude, ...popularityCount },
+    });
     const withDistance = candidates.map((s) => ({
       ...s,
-      distanceKm:
-        s.provider.latitude != null && s.provider.longitude != null
-          ? Math.round(haversineKm(lat, lng, s.provider.latitude, s.provider.longitude) * 10) / 10
-          : null,
+      distanceKm: distanceFrom(origin, s.provider.latitude, s.provider.longitude),
     }));
-    withDistance.sort((a, b) => {
-      if (a.distanceKm == null && b.distanceKm == null) return b.provider.ratingAvg - a.provider.ratingAvg;
-      if (a.distanceKm == null) return 1;
-      if (b.distanceKm == null) return -1;
-      return a.distanceKm - b.distanceKm;
-    });
-    const total = withDistance.length;
+    const { items: inRing, radiusKm } = pickRadiusTier(withDistance);
+    // Ranked by the business's rating / reviews / distance (services have no
+    // rating of their own); "newest" uses the service's own creation date.
+    const cmp = compareBySort(query.sort);
+    inRing.sort((a, b) =>
+      cmp(
+        { ...a.provider, distanceKm: a.distanceKm, createdAt: a.createdAt },
+        { ...b.provider, distanceKm: b.distanceKm, createdAt: b.createdAt },
+      ),
+    );
+    // Businesses share one rating, so a top business's services would all
+    // sit together — Popular services asks for one (its most-booked) each.
+    const ranked = query.onePerProvider
+      ? onePerBusiness(inRing)
+      : inRing.map(({ _count, ...rest }) => rest); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+    const total = ranked.length;
     const skip = (query.page - 1) * query.limit;
     return {
-      items: withDistance.slice(skip, skip + query.limit),
+      items: ranked.slice(skip, skip + query.limit),
       pagination: {
         page: query.page,
         limit: query.limit,
         total,
         totalPages: Math.ceil(total / query.limit),
       },
+      radiusKm,
     };
   }
 
@@ -184,7 +207,7 @@ async function searchPublic(query: SearchServiceQuery) {
       ? [{ provider: { ratingCount: 'desc' } }, { provider: { ratingAvg: 'desc' } }]
       : query.sort === 'newest'
         ? [{ createdAt: 'desc' }]
-        : [{ provider: { ratingAvg: 'desc' } }, { provider: { ratingCount: 'desc' } }];
+        : [{ provider: { ratingAvg: 'desc' } }, { provider: { ratingCount: 'desc' } }, { createdAt: 'asc' }];
 
   const skip = (query.page - 1) * query.limit;
   const baseProviderWhere = buildProviderWhere(query);
@@ -205,6 +228,26 @@ async function searchPublic(query: SearchServiceQuery) {
     if (count > 0) break;
   }
 
+  if (query.onePerProvider) {
+    // Needs every match to pick each business's best service, so it's paged in memory.
+    const all = await prisma.service.findMany({
+      where,
+      orderBy,
+      include: { ...publicInclude, ...popularityCount },
+    });
+    const ranked = onePerBusiness(all);
+    return {
+      items: ranked.slice(skip, skip + query.limit),
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total: ranked.length,
+        totalPages: Math.ceil(ranked.length / query.limit),
+      },
+      radiusKm: null as number | null,
+    };
+  }
+
   const [items, total] = await Promise.all([
     prisma.service.findMany({ where, skip, take: query.limit, orderBy, include: publicInclude }),
     prisma.service.count({ where }),
@@ -218,6 +261,7 @@ async function searchPublic(query: SearchServiceQuery) {
       total,
       totalPages: Math.ceil(total / query.limit),
     },
+    radiusKm: null as number | null,
   };
 }
 

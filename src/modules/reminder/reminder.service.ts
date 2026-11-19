@@ -180,7 +180,17 @@ async function update(userId: string, id: string, input: UpdateReminderInput) {
     endDate:
       input.endDate === undefined ? undefined : input.endDate ? new Date(input.endDate) : null,
   };
-  const updated = await prisma.reminder.update({ where: { id }, data });
+  let updated = await prisma.reminder.update({ where: { id }, data });
+
+  // A new due date or lead time means a new "reminder due" moment — let the
+  // scheduler notify again for it.
+  if (
+    updated.notifiedAt &&
+    (updated.dueDate.getTime() !== existing.dueDate.getTime() ||
+      updated.remindDaysBefore !== existing.remindDaysBefore)
+  ) {
+    updated = await prisma.reminder.update({ where: { id }, data: { notifiedAt: null } });
+  }
 
   // Later occurrences that were already created (missed days) must follow the edit.
   if (existing.status === 'PENDING' && existing.repeat !== 'NONE') {
@@ -201,6 +211,7 @@ async function update(userId: string, id: string, input: UpdateReminderInput) {
             note: updated.note,
             remindDaysBefore: updated.remindDaysBefore,
             endDate: updated.endDate,
+            ...(updated.remindDaysBefore !== existing.remindDaysBefore ? { notifiedAt: null } : {}),
           },
         });
       }
@@ -277,4 +288,4 @@ async function respond(
   return updated;
 }
 
-export const reminderService = { create, listMine, update, remove, respond };
+export const reminderService = { create, listMine, update, remove, respond, catchUp };

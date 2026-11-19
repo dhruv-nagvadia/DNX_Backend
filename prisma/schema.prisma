@@ -50,7 +50,9 @@ enum NotificationType {
   ORDER_CANCELLED // provider: a customer cancelled their order
   BOOKING_PLACED // provider: a customer booked a service
   BOOKING_STATUS // customer: their booking's status changed
-  BOOKING_CANCELLED // provider: a customer cancelled their booking
+  BOOKING_CANCELLED // provider: a customer cancelled their booking (or it expired unconfirmed)
+  BOOKING_REMINDER // customer: their appointment is coming up (~24 h / ~1 h before)
+  REMINDER_DUE // customer: one of their personal reminders is due
 }
 
 enum DiscountType {
@@ -172,6 +174,8 @@ model User {
   notifications  Notification[]
   // Saved addresses (for on-location service bookings — see Address below).
   addresses      Address[]
+  // FCM push tokens for this user's signed-in app installs.
+  deviceTokens   DeviceToken[]
   // Manual penalty charges an admin has levied against this account.
   penalties      UserPenalty[]
 
@@ -438,6 +442,10 @@ model Service {
   // Overrides the business's own partialPayEnabled to turn Partial Pay OFF
   // for just this service — can only restrict, never re-enable it.
   partialPayEnabled Boolean @default(true)
+  // Photo of this service (relative "/assets/services/<file>.jpg" or an
+  // uploaded URL). Customer cards fall back to the business / sub-category
+  // photo when it's empty.
+  imageUrl          String?
 
   // On-location services (plumber, electrician…) — the provider travels to
   // the customer instead of the customer coming to the business. The travel
@@ -512,6 +520,11 @@ model Booking {
   // date its earnings are counted on.
   settledAt       DateTime?
 
+  // Appointment reminders already sent to the customer (scheduler sentinels —
+  // keeps each one to a single send). Cleared when the booking is rescheduled.
+  reminder24hSentAt DateTime?
+  reminder1hSentAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -556,6 +569,9 @@ model Reminder {
   // The occurrence this one was spawned from (repeating series), if any —
   // lets the two be found from either side without a hard FK/relation.
   previousOccurrenceId String?
+  // When the "reminder due" notification went out for this occurrence (the
+  // scheduler sends it once; cleared if the due date / lead time is edited).
+  notifiedAt           DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -941,6 +957,24 @@ model PendingOrder {
 
 // An in-app notification for one user. Written on order/booking events and read
 // by both apps (provider web + customer mobile) via /notifications.
+// A push-notification (FCM) registration token for one app install. The
+// token is globally unique — if the same device signs in as someone else, the
+// row is re-assigned to the new user. Tokens FCM reports as dead are deleted.
+model DeviceToken {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  platform   String // "ios" | "android"
+  app        String // "customer" | "provider"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  // Last time the app (re-)registered this token.
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model Notification {
   id     String           @id @default(cuid())
   userId String

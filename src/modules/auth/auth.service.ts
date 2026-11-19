@@ -264,6 +264,8 @@ async function deleteAccount(userId: string, password: string): Promise<void> {
   if (!ok) throw ApiError.unauthorized('Incorrect password');
 
   const scrambledPasswordHash = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);
+  // A deleted account must stop receiving push notifications on its phones.
+  await prisma.deviceToken.deleteMany({ where: { userId } });
   await prisma.user.update({
     where: { id: userId },
     data: {

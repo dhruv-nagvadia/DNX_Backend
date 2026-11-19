@@ -39,6 +39,20 @@ const envSchema = z.object({
   // before you've signed up for Resend and added a real key.
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default('DNX <onboarding@resend.dev>'),
+
+  // Push notifications (Firebase Cloud Messaging). Either the service-account
+  // JSON base64-encoded (handy for hosted env vars) or a path to the JSON file.
+  // Without either, push is a silent no-op — in-app notifications still work.
+  FIREBASE_SERVICE_ACCOUNT_BASE64: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_PATH: z.string().optional(),
+
+  // In-process scheduler (appointment reminders, auto-expiring unconfirmed
+  // bookings, personal reminders). Set to "false" on all but one instance if
+  // the API is ever scaled horizontally, so jobs don't run twice.
+  SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 
 const parsed = envSchema.safeParse(process.env);
