@@ -42,9 +42,23 @@ function withAbsoluteTaxonomy<
   };
 }
 
+/**
+ * The business's phone number is NOT part of the public listing/detail —
+ * customers only get it on their own bookings and orders (those responses
+ * include provider.phone), so contact happens after they've booked/ordered.
+ */
+function withoutPhone<T extends { phone?: unknown }>(p: T): Omit<T, 'phone'> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { phone, ...rest } = p;
+  return rest;
+}
+
 const listProviders = asyncHandler(async (req: Request, res: Response) => {
   const result = await providerService.list(req.query as unknown as ListProviderQuery);
-  sendSuccess(res, { ...result, items: result.items.map((p) => withAbsoluteTaxonomy(req, p)) });
+  sendSuccess(res, {
+    ...result,
+    items: result.items.map((p) => withoutPhone(withAbsoluteTaxonomy(req, p))),
+  });
 });
 
 const getProvider = asyncHandler(async (req: Request, res: Response) => {
@@ -66,7 +80,7 @@ const getProvider = asyncHandler(async (req: Request, res: Response) => {
     codEnabled: p.codEnabled && provider.codEnabled,
     partialPayEnabled: p.partialPayEnabled && provider.partialPayEnabled,
   }));
-  sendSuccess(res, withAbsoluteTaxonomy(req, { ...provider, products }));
+  sendSuccess(res, withoutPhone(withAbsoluteTaxonomy(req, { ...provider, products })));
 });
 
 /** Upcoming booked intervals, so the app can hide unavailable slots. */
