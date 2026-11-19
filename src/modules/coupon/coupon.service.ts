@@ -126,6 +126,8 @@ async function listPublicForProvider(providerId: string) {
       providerId,
       isActive: true,
       OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+      // SERVICES-ONLY: store (product) coupons hidden from customers for launch — remove the next line to re-enable.
+      provider: { type: 'SERVICE' },
     },
     include: {
       service: { select: { name: true } },

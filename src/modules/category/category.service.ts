@@ -3,7 +3,9 @@ import { ApiError } from '@/utils/ApiError';
 
 async function list() {
   return prisma.category.findMany({
-    where: { isActive: true },
+    // SERVICES-ONLY: STORE categories hidden for launch — uncomment the line below and remove the next line to re-enable.
+    // where: { isActive: true },
+    where: { isActive: true, type: 'SERVICE' },
     orderBy: { sortOrder: 'asc' },
     include: {
       subcategories: {

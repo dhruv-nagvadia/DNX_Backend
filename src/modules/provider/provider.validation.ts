@@ -5,7 +5,9 @@ export const createProviderSchema = z.object({
     businessName: z.string().min(2),
     categoryId: z.string().min(1),
     subcategoryId: z.string().min(1).optional(),
-    type: z.enum(['SERVICE', 'STORE']).optional(),
+    // SERVICES-ONLY: providers can't create/switch to STORE businesses for launch — uncomment the line below and remove the next line to re-enable.
+    // type: z.enum(['SERVICE', 'STORE']).optional(),
+    type: z.enum(['SERVICE']).optional(),
     phone: z.string().min(8),
     email: z.string().email().optional(),
     description: z.string().max(2000).optional(),
@@ -101,7 +103,9 @@ export const updateProviderSchema = z.object({
     businessName: z.string().min(2).optional(),
     categoryId: z.string().min(1).optional(),
     subcategoryId: z.string().min(1).optional(),
-    type: z.enum(['SERVICE', 'STORE']).optional(),
+    // SERVICES-ONLY: providers can't create/switch to STORE businesses for launch — uncomment the line below and remove the next line to re-enable.
+    // type: z.enum(['SERVICE', 'STORE']).optional(),
+    type: z.enum(['SERVICE']).optional(),
     phone: z.string().min(8).optional(),
     email: z.string().email().optional(),
     description: z.string().max(2000).optional(),

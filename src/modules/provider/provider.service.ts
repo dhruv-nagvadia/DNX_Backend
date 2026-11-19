@@ -34,7 +34,8 @@ function buildBaseWhere(query: ListProviderQuery): Prisma.ProviderWhereInput {
 
   if (query.categorySlug) where.category = { slug: query.categorySlug };
   if (query.subcategorySlug) where.subcategory = { slug: query.subcategorySlug };
-  if (query.type) where.type = query.type;
+  // SERVICES-ONLY: type filter disabled so ?type=STORE can't override the SERVICE-only rule in visibleToCustomers — uncomment the line below to re-enable.
+  // if (query.type) where.type = query.type;
   if (query.minRating) where.ratingAvg = { gte: query.minRating };
   if (query.search) {
     if (query.type === 'SERVICE') {

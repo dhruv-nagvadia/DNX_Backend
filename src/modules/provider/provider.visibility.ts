@@ -12,4 +12,6 @@ export const visibleToCustomers = {
   isBlocked: false,
   // A deleted account is deactivated (isActive: false), not removed.
   user: { isBlocked: false, isActive: true },
+  // SERVICES-ONLY: product (STORE) businesses hidden from customers for launch (also blocks orders/bookings on them) — remove the next line to re-enable.
+  type: 'SERVICE',
 } satisfies Prisma.ProviderWhereInput;

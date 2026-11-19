@@ -57,7 +57,9 @@ function toClientItem(row: CartRow) {
 /** The user's saved cart, hydrated with live product + store details. */
 async function getCart(userId: string) {
   const rows = await prisma.cartItem.findMany({
-    where: { userId, product: { isActive: true } },
+    // SERVICES-ONLY: product cart disabled for launch (STORE products filtered out) — uncomment the line below and remove the next line to re-enable.
+    // where: { userId, product: { isActive: true } },
+    where: { userId, product: { isActive: true, provider: { type: 'SERVICE' } } },
     include: cartInclude,
     orderBy: { createdAt: 'asc' },
   });

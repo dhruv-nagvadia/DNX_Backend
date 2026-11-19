@@ -144,6 +144,8 @@ async function listPublic() {
     where: {
       isActive: true,
       OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+      // SERVICES-ONLY: store-order-only platform coupons hidden for launch — remove the next line to re-enable.
+      appliesTo: { not: 'ORDER' },
     },
     include: { category: { select: { name: true, slug: true } } },
     orderBy: { createdAt: 'desc' },

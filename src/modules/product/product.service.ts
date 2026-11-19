@@ -308,10 +308,12 @@ function buildBaseWhere(query: SearchProductQuery): Prisma.ProductWhereInput {
 
 /** Active product types, for the "shop by product" browse grid. */
 function listProductTypes() {
-  return prisma.productType.findMany({
+  // SERVICES-ONLY: product types hidden from customers for launch — uncomment the block below and remove the `return Promise.resolve([])` line to re-enable.
+  /* return prisma.productType.findMany({
     where: { isActive: true },
     orderBy: { sortOrder: 'asc' },
-  });
+  }); */
+  return Promise.resolve([] as Prisma.ProductTypeGetPayload<object>[]);
 }
 
 /** Public product search — matches by name; category/open-now/location filter on the selling store. */
