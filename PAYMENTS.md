@@ -64,7 +64,12 @@ provider's side, never added on top.
   Finance → Provider balances (`ProviderPayout`). Nothing here moves real money.
 - **Gateway fee (estimate):** `gatewayFee*` settings model what the gateway
   charges (e.g. UPI 0.4% above ₹2,000, capped ₹300). Snapshotted per payment in
-  `gatewayFeeMinor`; only affects the admin profit figure, never customers.
+  `gatewayFeeMinor`. Never affects customers. **Passed on to providers** (provider
+  terms, Nov 2026): the fee is deducted from the provider's payout
+  (`providerFeeMinor`, scaled to the online money still held; nothing on a fully
+  refunded sale, where DNX bears it). Admin profit = commission + fees passed on
+  − fees charged. Set the rate under Admin → Finance to Razorpay's fee **including 18% GST**
+  (2% → 2.36%) — providers bear all of it, DNX pays nothing. At 0, nothing is deducted.
   Defaults to 0.
 
 Endpoints: provider `GET /provider/earnings?from&to&businessId`; admin under

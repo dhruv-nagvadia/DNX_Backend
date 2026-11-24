@@ -233,6 +233,7 @@ async function loadRows(filter: LedgerFilter): Promise<LedgerRow[]> {
       refundedMinor: 0,
       commissionBps: b.commissionBps,
       onlinePaidMinor: b.onlinePaidMinor,
+      gatewayFeeMinor: b.gatewayFeeMinor,
     };
     rows.push({
       kind: 'BOOKING',
@@ -269,6 +270,7 @@ async function loadRows(filter: LedgerFilter): Promise<LedgerRow[]> {
       refundedMinor: o.refundedMinor,
       commissionBps: o.commissionBps,
       onlinePaidMinor: o.onlinePaidMinor,
+      gatewayFeeMinor: o.gatewayFeeMinor,
     };
     const names = o.items.map((i) => i.name).join(', ');
     const extra = o._count.items - o.items.length;
@@ -304,19 +306,30 @@ interface Totals {
   count: number;
   grossMinor: number;
   commissionMinor: number;
+  /** Gateway fees passed on to the provider (deducted from their payout). */
+  gatewayFeeMinor: number;
   netMinor: number;
   onlineMinor: number;
   cashMinor: number;
 }
 
 function emptyTotals(): Totals {
-  return { count: 0, grossMinor: 0, commissionMinor: 0, netMinor: 0, onlineMinor: 0, cashMinor: 0 };
+  return {
+    count: 0,
+    grossMinor: 0,
+    commissionMinor: 0,
+    gatewayFeeMinor: 0,
+    netMinor: 0,
+    onlineMinor: 0,
+    cashMinor: 0,
+  };
 }
 
 function addTo(t: Totals, e: LedgerEntry) {
   t.count += 1;
   t.grossMinor += e.keptMinor;
   t.commissionMinor += e.commissionMinor;
+  t.gatewayFeeMinor += e.providerFeeMinor;
   t.netMinor += e.earningMinor;
   t.onlineMinor += e.onlineHeldMinor;
   t.cashMinor += e.cashMinor;
@@ -351,16 +364,19 @@ async function payoutTotals(ownerId?: string) {
 /**
  * What the platform owes a provider account (positive) or what they owe the
  * platform (negative). The platform holds the online payments, so it owes the
- * provider those minus its commission on every finished sale; commission on
+ * provider those minus its commission and the passed-on gateway fee on every
+ * finished sale; commission on
  * cash sales (which the provider already holds) is therefore a debt to settle.
  */
 function balanceOf(rows: LedgerRow[], payouts: { toMinor: number; fromMinor: number } | undefined) {
   let earnedOnline = 0;
   let commission = 0;
+  let gatewayFees = 0;
   for (const r of rows) {
     if (r.entry.state !== 'EARNED') continue;
     earnedOnline += r.entry.onlineHeldMinor;
     commission += r.entry.commissionMinor;
+    gatewayFees += r.entry.providerFeeMinor;
   }
   const to = payouts?.toMinor ?? 0;
   const from = payouts?.fromMinor ?? 0;
@@ -368,9 +384,10 @@ function balanceOf(rows: LedgerRow[], payouts: { toMinor: number; fromMinor: num
     // The pieces the provider sees as "how your payout is worked out".
     earnedOnlineMinor: earnedOnline,
     earnedCommissionMinor: commission,
+    earnedGatewayFeeMinor: gatewayFees,
     paidOutMinor: to,
     receivedMinor: from,
-    balanceMinor: earnedOnline - commission - to + from,
+    balanceMinor: earnedOnline - commission - gatewayFees - to + from,
   };
 }
 
@@ -442,12 +459,15 @@ async function providerEarnings(ownerId: string, range: DateRange, businessId?: 
       commissionBps: r.commissionBps,
       grossMinor: r.entry.keptMinor,
       commissionMinor: r.entry.commissionMinor,
+      // Online payment fee passed on to the provider.
+      gatewayFeeMinor: r.entry.providerFeeMinor,
       earningMinor: r.entry.earningMinor,
       onlineMinor: r.entry.onlineHeldMinor,
       cashMinor: r.entry.cashMinor,
       // What this one sale adds to (or, for cash sales, takes off) what DNX
-      // pays the provider: the online money DNX holds, minus its commission.
-      payableMinor: r.entry.onlineHeldMinor - r.entry.commissionMinor,
+      // pays the provider: the online money DNX holds, minus its commission
+      // and the gateway fee.
+      payableMinor: r.entry.payableMinor,
     })),
     payouts: payouts.map(serializePayout),
   };
@@ -466,11 +486,19 @@ function seriesKey(d: Date, groupBy: GroupBy): string {
 async function adminOverview(range: DateRange, groupBy: GroupBy) {
   const rows = await loadRows({});
 
+  // gatewayFeesMinor = what the gateway charged DNX; totals.gatewayFeeMinor =
+  // the part passed on to providers (so DNX only bears fees on refunded sales).
   const totals = { ...emptyTotals(), gatewayFeesMinor: 0, profitMinor: 0 };
   const upcoming = emptyTotals();
   const buckets = new Map<
     string,
-    { count: number; grossMinor: number; commissionMinor: number; gatewayFeeMinor: number }
+    {
+      count: number;
+      grossMinor: number;
+      commissionMinor: number;
+      gatewayFeeMinor: number;
+      feesRecoveredMinor: number;
+    }
   >();
 
   for (const r of rows) {
@@ -490,20 +518,26 @@ async function adminOverview(range: DateRange, groupBy: GroupBy) {
       grossMinor: 0,
       commissionMinor: 0,
       gatewayFeeMinor: 0,
+      feesRecoveredMinor: 0,
     };
     if (r.entry.state === 'EARNED') {
       b.count += 1;
       b.grossMinor += r.entry.keptMinor;
       b.commissionMinor += r.entry.commissionMinor;
+      b.feesRecoveredMinor += r.entry.providerFeeMinor;
     }
     b.gatewayFeeMinor += r.gatewayFeeMinor;
     buckets.set(key, b);
   }
-  totals.profitMinor = totals.commissionMinor - totals.gatewayFeesMinor;
+  totals.profitMinor = totals.commissionMinor + totals.gatewayFeeMinor - totals.gatewayFeesMinor;
 
   const series = [...buckets.entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([key, b]) => ({ key, ...b, profitMinor: b.commissionMinor - b.gatewayFeeMinor }));
+    .map(([key, b]) => ({
+      key,
+      ...b,
+      profitMinor: b.commissionMinor + b.feesRecoveredMinor - b.gatewayFeeMinor,
+    }));
 
   return { range, groupBy, totals, upcoming, series };
 }
@@ -570,9 +604,11 @@ interface Agg {
   cashMinor: number;
   commissionMinor: number;
   gatewayFeeMinor: number;
-  /** What the providers keep after commission. */
+  /** Of the gateway fees, the part passed on to providers (deducted from their payout). */
+  providerFeeMinor: number;
+  /** What the providers keep after commission and the passed-on gateway fee. */
   earningMinor: number;
-  /** Online money held minus commission: what DNX still has to pass on. Negative = commission to take back. */
+  /** Online money held minus commission and passed-on fees: what DNX still has to pass on. Negative = to take back. */
   payableMinor: number;
   upcomingCount: number;
   upcomingMinor: number;
@@ -589,6 +625,7 @@ function emptyAgg(): Agg {
     cashMinor: 0,
     commissionMinor: 0,
     gatewayFeeMinor: 0,
+    providerFeeMinor: 0,
     earningMinor: 0,
     payableMinor: 0,
     upcomingCount: 0,
@@ -610,8 +647,9 @@ function addRow(a: Agg, r: LedgerRow) {
     a.onlineMinor += e.onlineHeldMinor;
     a.cashMinor += e.cashMinor;
     a.commissionMinor += e.commissionMinor;
+    a.providerFeeMinor += e.providerFeeMinor;
     a.earningMinor += e.earningMinor;
-    a.payableMinor += e.onlineHeldMinor - e.commissionMinor;
+    a.payableMinor += e.payableMinor;
     a.methods[r.paymentMethod] += 1;
   } else if (e.state === 'UPCOMING') {
     a.upcomingCount += 1;
@@ -656,10 +694,12 @@ function toTransaction(r: LedgerRow, shared?: SharedPayment) {
     commissionBps: r.commissionBps,
     commissionMinor: e.commissionMinor,
     gatewayFeeMinor: r.gatewayFeeMinor,
+    // Of that fee, the part passed on to the provider.
+    providerFeeMinor: e.providerFeeMinor,
     earningMinor: e.earningMinor,
-    // Online money DNX holds for this sale minus its commission. For a cash
-    // sale that's just −commission: taken off what DNX owes the provider.
-    payableMinor: e.onlineHeldMinor - e.commissionMinor,
+    // Online money DNX holds for this sale minus its commission and the
+    // passed-on gateway fee. For a cash sale that's just −commission.
+    payableMinor: e.payableMinor,
   };
 }
 
