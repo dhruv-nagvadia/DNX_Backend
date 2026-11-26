@@ -14,6 +14,11 @@ import { apiLimiter } from '@/middlewares/rateLimit';
 export function createApp(): Application {
   const app = express();
 
+  // Behind a hosting proxy / tunnel (Render, ngrok, nginx, ...) the real client IP arrives in
+  // X-Forwarded-For. Trust the first proxy so the rate limiter counts each visitor separately
+  // instead of treating everyone as one IP.
+  app.set('trust proxy', 1);
+
   // Security & parsing
   app.use(
     helmet({
